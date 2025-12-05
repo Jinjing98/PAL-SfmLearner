@@ -2,7 +2,8 @@ import numpy as np
 import torch
 import torch.nn as nn
 from collections import OrderedDict
-from layers import *
+from networks.layers import ConvBlock, Conv3x3
+from utils import upsample
 
 class decompose_decoder(nn.Module):
     def __init__(self,num_ch_enc, scales = range(4) , num_output_R_channels=3,num_output_L_channels=1, use_skips=True):

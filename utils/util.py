@@ -10,6 +10,7 @@ import torchvision.transforms as T
 import matplotlib as mpl
 import matplotlib.cm as cm
 from torchvision.utils import flow_to_image
+import torch.nn.functional as F
 
 def readlines(filename):
     """Read all the lines in a text file and return as a list
@@ -60,6 +61,24 @@ def sec_to_hm_str(t):
     """
     h, m, s = sec_to_hm(t)
     return "{:02d}h{:02d}m{:02d}s".format(h, m, s)
+
+
+def disp_to_depth(disp, min_depth, max_depth):
+    """Convert network's sigmoid output into depth prediction
+    The formula for this conversion is given in the 'additional considerations'
+    section of the paper.
+    """
+    min_disp = 1 / max_depth
+    max_disp = 1 / min_depth
+    scaled_disp = min_disp + (max_disp - min_disp) * disp
+    depth = 1 / scaled_disp
+    return scaled_disp, depth
+
+
+def upsample(x):
+    """Upsample input tensor by a factor of 2
+    """
+    return F.interpolate(x, scale_factor=2, mode="nearest")
 
 
 def download_model_if_doesnt_exist(model_name):
@@ -126,3 +145,4 @@ def download_model_if_doesnt_exist(model_name):
             f.extractall(model_path)
 
         print("   Model unzipped to {}".format(model_path))
+

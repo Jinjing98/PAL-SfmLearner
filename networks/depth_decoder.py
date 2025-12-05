@@ -11,7 +11,8 @@ import torch
 import torch.nn as nn
 
 from collections import OrderedDict
-from layers import *
+from networks.layers import ConvBlock, Conv3x3
+from utils import upsample
 
 
 class DepthDecoder(nn.Module):

@@ -2,7 +2,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 from collections import OrderedDict
-from layers import *
+from networks.layers import ConvBlock
 
 class adjust_net(nn.Module):
     def __init__(self,num_input_channels=3,num_output_channels=1):

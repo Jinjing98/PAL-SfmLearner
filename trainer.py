@@ -6,8 +6,8 @@ import datasets
 import networks
 import torch.optim as optim
 from utils import *
-from layers import *
 from loss import SSIM, compute_losses
+import torch
 from torch.utils.data import DataLoader
 from tensorboardX import SummaryWriter
 import torch.nn.functional as F

@@ -13,7 +13,7 @@ import torch
 from torchvision import transforms, datasets
 
 import networks
-from layers import disp_to_depth
+from utils import disp_to_depth
 
 def parse_args():
     parser = argparse.ArgumentParser(
