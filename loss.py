@@ -111,6 +111,7 @@ def compute_losses(inputs, outputs, opt, ssim):
     loss_reconstruction = loss_reconstruction / num_frame_ids
 
     # Reflectance and reprojection losses (averaged over frame_ids[1:])
+    reproj_supervise_type = opt.reproj_supervise_type
     for frame_id in opt.frame_ids[1:]: 
         mask = outputs[("valid_mask", 0, frame_id)]
         loss_reflec += (torch.abs(
@@ -118,7 +119,7 @@ def compute_losses(inputs, outputs, opt, ssim):
         ).mean(1, True) * mask).sum() / mask.sum()
         loss_reprojection += (compute_reprojection_loss(
             inputs[("color_aug", 0, 0)], 
-            outputs[("reprojection_color_warp", 0, frame_id)],
+            outputs[(reproj_supervise_type, 0, frame_id)],
             ssim
         ) * mask).sum() / mask.sum()
     

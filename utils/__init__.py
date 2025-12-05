@@ -11,3 +11,4 @@ from .warping import (
     Project3D_Raw,
     SpatialTransformer
 )
+from .metrics import compute_depth_metrics
