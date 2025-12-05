@@ -6,6 +6,7 @@ import datasets
 import networks
 import torch.optim as optim
 from utils import *
+from utils.metrics import compute_depth_metrics
 from loss import SSIM, compute_losses
 import torch
 from torch.utils.data import DataLoader
@@ -218,7 +219,7 @@ class Trainer:
             if phase:
 
                 self.log_time(batch_idx, duration, losses["loss"].cpu().data)
-                self.log("train", inputs, outputs, losses)
+                self.log("train", inputs, outputs, losses, metrics=None)
                 self.val()
 
             self.step += 1
@@ -282,6 +283,7 @@ class Trainer:
         disp = outputs[("disp", 0)]
         disp = F.interpolate(disp, [self.opt.height, self.opt.width], mode="bilinear", align_corners=True)
         _, depth = disp_to_depth(disp, self.opt.min_depth, self.opt.max_depth)
+        outputs[("depth", 0, 0)] = depth  # Store depth for metrics computation; do not used for warping; we OP on disp directly.
         
         for i, frame_id in enumerate(self.opt.frame_ids[1:]):
             T = outputs[("cam_T_cam", 0, frame_id)]
@@ -337,7 +339,13 @@ class Trainer:
 
         with torch.no_grad():
             outputs, losses = self.process_batch(inputs)
-            self.log("val", inputs, outputs, losses)
+            
+            # Compute depth metrics if enabled and GT depth is available
+            metrics = {}
+            if self.opt.compute_metrics:
+                metrics = compute_depth_metrics(inputs, outputs)
+            
+            self.log("val", inputs, outputs, losses, metrics)
             del inputs, outputs, losses
 
         self.set_train()
@@ -355,7 +363,7 @@ class Trainer:
         print(print_string.format(self.epoch, batch_idx, samples_per_sec, loss,
                                   sec_to_hm_str(time_sofar), sec_to_hm_str(training_time_left)))
 
-    def log(self, mode, inputs, outputs, losses):
+    def log(self, mode, inputs, outputs, losses, metrics=None):
         """Write an event to the tensorboard events file
         """
         writer = self.writers[mode]
@@ -363,6 +371,12 @@ class Trainer:
         losses_prefix = "losses"
         for l, v in losses.items():
             writer.add_scalar("{}/{}".format(losses_prefix, l), v, self.step)
+
+        # Log metrics if provided
+        if metrics is not None and len(metrics) > 0:
+            metrics_prefix = "metrics"
+            for m, v in metrics.items():
+                writer.add_scalar("{}/{}".format(metrics_prefix, m), v, self.step)
 
         for j in range(min(4, self.opt.batch_size)):  # write a maxmimum of four images
                 writer.add_image(

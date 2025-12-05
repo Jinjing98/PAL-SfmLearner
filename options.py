@@ -124,6 +124,9 @@ class MonodepthOptions:
                                  type=int,
                                  help="random seed for reproducibility",
                                  default=42)
+        self.parser.add_argument("--compute_metrics",
+                                 help="if set computes depth metrics during validation",
+                                 action="store_true")
 
         # LOADING options
         self.parser.add_argument("--load_weights_folder",
