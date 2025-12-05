@@ -120,6 +120,10 @@ class MonodepthOptions:
                                  type=int,
                                  help="number of dataloader workers",
                                  default=12)
+        self.parser.add_argument("--seed",
+                                 type=int,
+                                 help="random seed for reproducibility",
+                                 default=42)
 
         # LOADING options
         self.parser.add_argument("--load_weights_folder",

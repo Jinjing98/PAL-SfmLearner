@@ -81,6 +81,24 @@ def upsample(x):
     return F.interpolate(x, scale_factor=2, mode="nearest")
 
 
+def set_seed(seed):
+    """Set random seed for reproducibility
+    """
+    import random
+    import numpy as np
+    import torch
+    
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    
+    # For deterministic behavior (may reduce performance)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
+
 def download_model_if_doesnt_exist(model_name):
     """If pretrained kitti model doesn't exist, download and unzip it
     """
