@@ -285,7 +285,10 @@ def test_paba_unit():
         patch_size=8, 
         # patch_size=1, 
         eps=1e-6, 
-        min_valid_ratio=0.1)
+        min_valid_ratio=0.1,
+        interp_mode='nearest',
+        # interp_mode='bilinear',
+    )
     paba = paba.to(device)
     paba.eval()
     
