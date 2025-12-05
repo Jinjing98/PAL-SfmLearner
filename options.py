@@ -23,7 +23,7 @@ class MonodepthOptions:
         self.parser.add_argument("--model_name",
                                  type=str,
                                  help="the name of the folder to save the model in",
-                                 default=time.strftime('%Y-%m-%d-%H-%M-%S'))
+                                 default=time.strftime('%m%d_%H%M'))
         self.parser.add_argument("--split",
                                  type=str,
                                  help="which training split to use",
@@ -156,6 +156,10 @@ class MonodepthOptions:
                                  help="models to load")
 
         # LOGGING options
+        self.parser.add_argument("--exp_suffix",
+                                 type=str,
+                                 help="experiment suffix to append to model_name when logging",
+                                 default="")
         self.parser.add_argument("--log_frequency",
                                  type=int,
                                  help="number of batches between each tensorboard log",

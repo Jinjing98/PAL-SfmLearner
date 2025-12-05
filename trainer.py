@@ -16,7 +16,11 @@ import torch.nn.functional as F
 class Trainer:
     def __init__(self, options):
         self.opt = options
-        self.log_path = os.path.join(self.opt.log_dir, self.opt.model_name)
+        # Prepend exp_suffix to model_name if provided
+        model_name_with_suffix = self.opt.model_name
+        if self.opt.exp_suffix:
+            model_name_with_suffix = f"{self.opt.exp_suffix}_{self.opt.model_name}"
+        self.log_path = os.path.join(self.opt.log_dir, model_name_with_suffix)
 
         # Set random seed for reproducibility
         set_seed(self.opt.seed)
