@@ -4,6 +4,7 @@ import os
 import numpy as np
 import PIL.Image as pil
 import cv2
+import torch
 
 from .mono_dataset import MonoDataset
 
@@ -20,9 +21,20 @@ class SCAREDDataset(MonoDataset):
         # self.full_res_shape = (1280, 1024)
         self.side_map = {"2": 2, "3": 3, "l": 2, "r": 3}
 
+        # Load GT depths from npz file for validation (is_train=False)
+        self.gt_depths_val = None
+        if not self.is_train:
+            # splits_dir is at the same level as datasets directory
+            splits_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "splits")
+            gt_path = os.path.join(splits_dir, 'endovis', "gt_depths_val.npz")
+            if os.path.exists(gt_path):
+                print("Loading GT depths from {}".format(gt_path))
+                self.gt_depths_val = np.load(gt_path, fix_imports=True, encoding='latin1')["data"]
+                print("Loaded {} GT depth maps".format(len(self.gt_depths_val)))
+
     def check_depth(self):
-        
-        return False
+        # Return True for validation to enable GT depth loading
+        return not self.is_train
 
     def get_color(self, folder, frame_index, side, do_flip):
         color = self.loader(self.get_image_path(folder, frame_index, side))
@@ -45,6 +57,11 @@ class SCAREDRAWDataset(SCAREDDataset):
         return image_path
 
     def get_depth(self, folder, frame_index, side, do_flip):
+        # If npz data is available, return None (will be loaded from npz in __getitem__)
+        if self.gt_depths_val is not None:
+            return None
+        
+        # Otherwise, load from file
         f_str = "scene_points{:06d}.tiff".format(frame_index)
 
         depth_path = os.path.join(
@@ -54,11 +71,115 @@ class SCAREDRAWDataset(SCAREDDataset):
             f_str)
 
         depth_gt = cv2.imread(depth_path, 3)
+        if depth_gt is None:
+            return None
+        
         depth_gt = depth_gt[:, :, 0]
         depth_gt = depth_gt[0:1024, :]
         if do_flip:
             depth_gt = np.fliplr(depth_gt)
 
         return depth_gt
+
+    def __getitem__(self, index):
+        """Override to add GT depth loading from gt_depths_val.npz for validation"""
+        # Call parent __getitem__ to get all standard inputs
+        inputs = super(SCAREDRAWDataset, self).__getitem__(index)
+        
+        # Load GT depth from npz file if available (for validation only)
+        if self.gt_depths_val is not None and index < len(self.gt_depths_val):
+            gt_depth = self.gt_depths_val[index]  # (H_gt, W_gt)
+            # Convert to tensor and add channel dimension: (1, H_gt, W_gt)
+            inputs["depth_gt"] = torch.from_numpy(np.expand_dims(gt_depth, 0).astype(np.float32))
+        
+        return inputs
+
+
+if __name__ == "__main__":
+    # Test GT depth loading for validation dataset
+    import sys
+    sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+    
+    from utils import readlines
+    
+    # Configuration for testing
+    data_path = "/path/to/data"  # Update with your data path
+    height = 256
+    width = 320
+    frame_ids = [0, -1, 1]
+    split = "endovis"
+    
+    # Read validation filenames
+    splits_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "splits")
+    val_fpath = os.path.join(splits_dir, split, "val_files.txt")
+    
+    if not os.path.exists(val_fpath):
+        print("Error: Validation split file not found at {}".format(val_fpath))
+        sys.exit(1)
+    
+    val_filenames = readlines(val_fpath)
+    
+    print("=" * 60)
+    print("Testing GT Depth Loading for Validation Dataset")
+    print("=" * 60)
+    print("Validation filenames: {}".format(len(val_filenames)))
+    
+    # Create validation dataset
+    try:
+        val_dataset = SCAREDRAWDataset(
+            data_path, val_filenames, height, width,
+            frame_ids, 4, is_train=False, img_ext='.png'
+        )
+        print("Dataset created successfully!")
+        print("GT depths loaded: {}".format(val_dataset.gt_depths_val is not None))
+        
+        if val_dataset.gt_depths_val is not None:
+            print("GT depths shape: {}".format(val_dataset.gt_depths_val.shape))
+            print("Number of GT depth maps: {}".format(len(val_dataset.gt_depths_val)))
+            print("GT depth dtype: {}".format(val_dataset.gt_depths_val.dtype))
+            print("GT depth min/max: {:.3f} / {:.3f}".format(
+                val_dataset.gt_depths_val.min(), val_dataset.gt_depths_val.max()))
+        else:
+            print("WARNING: GT depths not loaded! Check if gt_depths_val.npz exists.")
+        
+        # Test loading a sample
+        if len(val_filenames) > 0:
+            print("\n" + "-" * 60)
+            print("Testing __getitem__ for index 0")
+            print("-" * 60)
+            try:
+                sample = val_dataset[0]
+                print("Sample keys: {}".format(list(sample.keys())))
+                
+                if "depth_gt" in sample:
+                    depth_gt = sample["depth_gt"]
+                    print("GT depth loaded successfully!")
+                    print("  Shape: {}".format(depth_gt.shape))
+                    print("  Type: {}".format(type(depth_gt)))
+                    print("  Dtype: {}".format(depth_gt.dtype))
+                    if isinstance(depth_gt, torch.Tensor):
+                        print("  Min/Max: {:.3f} / {:.3f}".format(
+                            depth_gt.min().item(), depth_gt.max().item()))
+                        print("  Mean: {:.3f}".format(depth_gt.mean().item()))
+                else:
+                    print("WARNING: 'depth_gt' not found in sample!")
+                    print("  Available keys: {}".format(list(sample.keys())))
+                
+            except Exception as e:
+                print("Error loading sample: {}".format(e))
+                import traceback
+                traceback.print_exc()
+        else:
+            print("No validation filenames to test!")
+            
+    except Exception as e:
+        print("Error creating dataset: {}".format(e))
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
+    
+    print("\n" + "=" * 60)
+    print("Test completed!")
+    print("=" * 60)
 
 

@@ -193,8 +193,11 @@ class MonoDataset(data.Dataset):
 
         if self.load_depth:
             depth_gt = self.get_depth(folder, frame_index, side, do_flip)
-            inputs["depth_gt"] = np.expand_dims(depth_gt, 0)
-            inputs["depth_gt"] = torch.from_numpy(inputs["depth_gt"].astype(np.float32))
+            # Only add depth_gt if get_depth returned a valid depth (not None)
+            # None means it will be loaded elsewhere (e.g., from npz in child class)
+            if depth_gt is not None:
+                inputs["depth_gt"] = np.expand_dims(depth_gt, 0)
+                inputs["depth_gt"] = torch.from_numpy(inputs["depth_gt"].astype(np.float32))
 
         if "s" in self.frame_idxs:
             stereo_T = np.eye(4, dtype=np.float32)
