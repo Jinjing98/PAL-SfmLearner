@@ -90,14 +90,19 @@ class Trainer:
         val_filenames = readlines(fpath.format("val"))
         img_ext = '.png'  
 
+        if self.opt.of_samples:
+            train_filenames = train_filenames[:self.opt.of_samples_num]
+            print("Overfitting mode: using {} samples".format(len(train_filenames)))
+
         num_train_samples = len(train_filenames)
         self.num_total_steps = num_train_samples // self.opt.batch_size * self.opt.num_epochs
 
         train_dataset = self.dataset(
             self.opt.data_path, train_filenames, self.opt.height, self.opt.width,
             self.opt.frame_ids, 4, is_train=True, img_ext=img_ext)
+        shuffle = not self.opt.of_samples  # Fixed order for overfitting
         self.train_loader = DataLoader(
-            train_dataset, self.opt.batch_size, True,
+            train_dataset, self.opt.batch_size, shuffle,
             num_workers=self.opt.num_workers, pin_memory=True, drop_last=True)
         val_dataset = self.dataset(
             self.opt.data_path, val_filenames, self.opt.height, self.opt.width,

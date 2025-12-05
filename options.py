@@ -141,6 +141,15 @@ class MonodepthOptions:
                                  help="number of epochs between each save",
                                  default=1)
 
+        # OVERFITTING options
+        self.parser.add_argument("--of_samples",
+                                 help="if set enables overfitting mode with limited samples",
+                                 action="store_true")
+        self.parser.add_argument("--of_samples_num",
+                                 type=int,
+                                 help="number of samples to use for overfitting",
+                                 default=100)
+
         # EVALUATION options
         self.parser.add_argument("--eval_stereo",
                                  help="if set evaluates in stereo mode",
