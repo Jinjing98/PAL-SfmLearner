@@ -381,10 +381,30 @@ class Trainer:
         for j in range(min(4, self.opt.batch_size)):  # write a maxmimum of four images
                 writer.add_image(
                     "disp/{}".format(j),
-                   visualize_depth(outputs[("disp", 0)][j]), self.step)
+                   visualize_disp(outputs[("disp", 0)][j]), self.step)
                 writer.add_image(
                         "input/{}".format(j),
                         inputs[("color", 0, 0)][j].data, self.step)
+                
+                # Visualize depth if available
+                if ("depth", 0, 0) in outputs:
+                    writer.add_image(
+                        "depth/{}".format(j),
+                        visualize_depth(outputs[("depth", 0, 0)][j]), self.step)
+                
+                # Visualize depth error if GT depth and metrics are available
+                if mode == "val" and ("depth_gt", 0, 0) in inputs and ("depth", 0, 0) in outputs:
+                    try:
+                        depth_err_vis = visualize_depth_err(
+                            inputs[("depth_gt", 0, 0)][j],
+                            outputs[("depth", 0, 0)][j],
+                            cmap='viridis'
+                        )
+                        writer.add_image(
+                            "depth_err/{}".format(j),
+                            depth_err_vis, self.step)
+                    except Exception as e:
+                        pass  # Skip if visualization fails
                     
 
     def save_opts(self):

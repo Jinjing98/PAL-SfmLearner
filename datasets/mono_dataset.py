@@ -135,7 +135,7 @@ class MonoDataset(data.Dataset):
             ("color_aug", <frame_id>, <scale>)      for augmented colour images,
             ("K", scale) or ("inv_K", scale)        for camera intrinsics,
             "stereo_T"                              for camera extrinsics, and
-            "depth_gt"                              for ground truth depth maps.
+            ("depth_gt", 0, 0)                              for ground truth depth maps.
 
         <frame_id> is either:
             an integer (e.g. 0, -1, or 1) representing the temporal step relative to 'index',
@@ -196,8 +196,8 @@ class MonoDataset(data.Dataset):
             # Only add depth_gt if get_depth returned a valid depth (not None)
             # None means it will be loaded elsewhere (e.g., from npz in child class)
             if depth_gt is not None:
-                inputs["depth_gt"] = np.expand_dims(depth_gt, 0)
-                inputs["depth_gt"] = torch.from_numpy(inputs["depth_gt"].astype(np.float32))
+                inputs[("depth_gt", 0, 0)] = np.expand_dims(depth_gt, 0)
+                inputs[("depth_gt", 0, 0)] = torch.from_numpy(inputs[("depth_gt", 0, 0)].astype(np.float32))
 
         if "s" in self.frame_idxs:
             stereo_T = np.eye(4, dtype=np.float32)

@@ -27,7 +27,7 @@ def compute_depth_metrics(inputs, outputs):
     """Compute depth metrics for a validation batch
     
     Args:
-        inputs: Input batch dictionary (should contain "depth_gt" if GT depths are available)
+        inputs: Input batch dictionary (should contain ("depth_gt", 0, 0) if GT depths are available)
         outputs: Output batch dictionary (should contain ("depth", 0, 0) for predicted depth)
     
     Returns:
@@ -35,7 +35,7 @@ def compute_depth_metrics(inputs, outputs):
     """
     
     # Check if GT depth is available in inputs
-    if "depth_gt" not in inputs:
+    if ("depth_gt", 0, 0) not in inputs:
         return {}
     
     # Get predicted depth from outputs
@@ -46,7 +46,7 @@ def compute_depth_metrics(inputs, outputs):
     MAX_DEPTH = 150
     
     # Get GT depth and predicted depth
-    gt_depth_tensor = inputs["depth_gt"]  # (B, 1, H_gt, W_gt) or (B, H_gt, W_gt)
+    gt_depth_tensor = inputs[("depth_gt", 0, 0)]  # (B, 1, H_gt, W_gt) or (B, H_gt, W_gt)
     pred_depth_tensor = outputs[("depth", 0, 0)]  # (B, 1, H, W)
     
     # Handle different tensor shapes

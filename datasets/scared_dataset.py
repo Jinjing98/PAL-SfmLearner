@@ -90,7 +90,7 @@ class SCAREDRAWDataset(SCAREDDataset):
         if self.gt_depths_val is not None and index < len(self.gt_depths_val):
             gt_depth = self.gt_depths_val[index]  # (H_gt, W_gt)
             # Convert to tensor and add channel dimension: (1, H_gt, W_gt)
-            inputs["depth_gt"] = torch.from_numpy(np.expand_dims(gt_depth, 0).astype(np.float32))
+            inputs[("depth_gt", 0, 0)] = torch.from_numpy(np.expand_dims(gt_depth, 0).astype(np.float32))
         
         return inputs
 
@@ -151,8 +151,8 @@ if __name__ == "__main__":
                 sample = val_dataset[0]
                 print("Sample keys: {}".format(list(sample.keys())))
                 
-                if "depth_gt" in sample:
-                    depth_gt = sample["depth_gt"]
+                if ("depth_gt", 0, 0) in sample:
+                    depth_gt = sample[("depth_gt", 0, 0)]
                     print("GT depth loaded successfully!")
                     print("  Shape: {}".format(depth_gt.shape))
                     print("  Type: {}".format(type(depth_gt)))
@@ -162,7 +162,7 @@ if __name__ == "__main__":
                             depth_gt.min().item(), depth_gt.max().item()))
                         print("  Mean: {:.3f}".format(depth_gt.mean().item()))
                 else:
-                    print("WARNING: 'depth_gt' not found in sample!")
+                    print("WARNING: ('depth_gt', 0, 0) not found in sample!")
                     print("  Available keys: {}".format(list(sample.keys())))
                 
             except Exception as e:

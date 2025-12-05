@@ -7,8 +7,6 @@ import cv2
 import numpy as np
 import PIL.Image as pil
 import torchvision.transforms as T
-import matplotlib as mpl
-import matplotlib.cm as cm
 from torchvision.utils import flow_to_image
 import torch.nn.functional as F
 
@@ -28,20 +26,6 @@ def normalize_image(x):
     d = ma - mi if ma != mi else 1e5
     result=(x - mi) / d
     return result
-
-def visualize_depth(depth):
-    """
-    depth: (H, W)
-    """
-    depth=depth.squeeze()
-    x = depth.cpu().detach().numpy()
-    vmax = np.percentile(x, 95)
-
-    normalizer = mpl.colors.Normalize(vmin=x.min(), vmax=vmax) # 归一化到0-1
-    mapper = cm.ScalarMappable(norm=normalizer, cmap='magma') # colormap
-    colormapped_im = (mapper.to_rgba(x)[:, :, :3] * 255).astype(np.uint8)
-    colormapped_im=np.transpose(colormapped_im,(2,0,1))
-    return colormapped_im
 
 def sec_to_hm(t):
     """Convert time in seconds to time in hours, minutes and seconds
