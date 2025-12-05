@@ -90,9 +90,12 @@ class Trainer:
         datasets_dict = {"endovis": datasets.SCAREDRAWDataset}
         self.dataset = datasets_dict[self.opt.dataset]
 
-        fpath = os.path.join(os.path.dirname(__file__), "splits", self.opt.split, "{}_files.txt")
-        train_filenames = readlines(fpath.format("train") if not self.opt.of_samples else fpath.format("val")) 
-        val_filenames = readlines(fpath.format("val"))
+        splits_dir = os.path.join(os.path.dirname(__file__), "splits", self.opt.split)
+        train_file = self.opt.train_data_file if not self.opt.of_samples else self.opt.val_data_file
+        train_fpath = os.path.join(splits_dir, train_file)
+        val_fpath = os.path.join(splits_dir, self.opt.val_data_file)
+        train_filenames = readlines(train_fpath)
+        val_filenames = readlines(val_fpath)
         img_ext = '.png'  
 
         if self.opt.of_samples:

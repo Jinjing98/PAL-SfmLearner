@@ -29,6 +29,18 @@ class MonodepthOptions:
                                  help="which training split to use",
                                  choices=["endovis", "hamlyn"],
                                  default="endovis")
+        self.parser.add_argument("--train_data_file",
+                                 type=str,
+                                 help="filename for training data split (relative to splits/{split}/)",
+                                 default="train_files.txt")
+        self.parser.add_argument("--val_data_file",
+                                 type=str,
+                                 help="filename for validation data split (relative to splits/{split}/)",
+                                 default="val_files.txt")
+        self.parser.add_argument("--test_data_file",
+                                 type=str,
+                                 help="filename for test data split (relative to splits/{split}/)",
+                                 default="test_files.txt")
         self.parser.add_argument("--num_layers",
                                  type=int,
                                  help="number of resnet layers",

@@ -25,9 +25,14 @@ CUDA_VISIBLE_DEVICES=0 python \
 --reconstruction_constraint 0.2 \
 --reflec_constraint 0.2 \
 --reprojection_constraint 1 \
+--train_data_file train_files.txt \
+--val_data_file val_files.txt \
+--test_data_file test_files.txt \
 --log_dir /mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm/iidsfm \
 --data_path /mnt/nct-zfs/TCO-All/SharedDatasets/SCARED_Images_Resized/ \
 --of_samples --of_samples_num 16 --save_frequency 10000 --log_frequency 200 --num_epochs 50000 \
+--train_data_file d6_kf2.txt \
+--val_data_file d6_kf2.txt \
 --reflec_constraint 0.0 \
 --reprojection_constraint 1 --reproj_supervise_type color_warp \
 --disparity_smoothness 0.0 \

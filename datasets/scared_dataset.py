@@ -172,6 +172,7 @@ if __name__ == "__main__":
     val_fpath = os.path.join(splits_dir, split, "val_files.txt")
     val_fpath = os.path.join(splits_dir, split, "test_files.txt")
     val_fpath = os.path.join(splits_dir, split, "train_files.txt")
+    val_fpath = os.path.join(splits_dir, split, "d6_kf2.txt")
     
     if not os.path.exists(val_fpath):
         print("Error: Validation split file not found at {}".format(val_fpath))
