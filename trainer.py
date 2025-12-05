@@ -104,7 +104,9 @@ class Trainer:
 
         if self.opt.of_samples:
             train_filenames = train_filenames[:self.opt.of_samples_num]
-            print("Overfitting mode: using {} samples".format(len(train_filenames)))
+            val_filenames = val_filenames[:self.opt.of_samples_num]
+            print("Overfitting mode: using {} Trn samples".format(len(train_filenames)))
+            print("Overfitting mode: using {} Val samples".format(len(val_filenames)))
 
         num_train_samples = len(train_filenames)
         self.num_total_steps = num_train_samples // self.opt.batch_size * self.opt.num_epochs
@@ -338,6 +340,9 @@ class Trainer:
                 align_corners=True
             )
             
+            # Store raw warped source for visualization
+            outputs[("color_warp", 0, frame_id)] = warped_source
+            
             # Create valid mask (same logic as decompose)
             mask_ones = torch.ones_like(inputs[("color_aug", frame_id, 0)])
             mask_warp = F.grid_sample(
@@ -362,8 +367,7 @@ class Trainer:
             # Store the PABA-aligned image for reprojection loss
             outputs[("paba_color_warp", 0, frame_id)] = aligned_warped_source
             
-            # Optionally store alpha and beta maps for visualization
-            # (useful for debugging and understanding PABA behavior)
+            # Store alpha and beta maps for visualization
             outputs[("paba_alpha", 0, frame_id)] = alpha_map
             outputs[("paba_beta", 0, frame_id)] = beta_map
 
@@ -498,6 +502,42 @@ class Trainer:
                             depth_err_vis, self.step)
                     except Exception as e:
                         pass  # Skip if visualization fails
+                
+                # Visualize PABA outputs if available
+                if self.opt.reproj_supervise_type == "paba_color_warp":
+                    for frame_id in self.opt.frame_ids[1:]:
+                        # Target image
+                        writer.add_image(
+                            "paba/target_{}/{}".format(frame_id, j),
+                            inputs[("color_aug", 0, 0)][j].data, self.step)
+                        
+                        # Raw warped source (before PABA)
+                        if ("color_warp", 0, frame_id) in outputs:
+                            writer.add_image(
+                                "paba/warped_source_{}/{}".format(frame_id, j),
+                                outputs[("color_warp", 0, frame_id)][j].data, self.step)
+                        
+                        # Aligned warped source (after PABA)
+                        # Clamp to [0, 1] for proper visualization (PABA can produce values outside this range)
+                        if ("paba_color_warp", 0, frame_id) in outputs:
+                            aligned_img = outputs[("paba_color_warp", 0, frame_id)][j].data
+                            aligned_img = torch.clamp(aligned_img, 0, 1)
+                            writer.add_image(
+                                "paba/aligned_{}/{}".format(frame_id, j),
+                                aligned_img, self.step)
+                        
+                        # Alpha map
+                        if ("paba_alpha", 0, frame_id) in outputs:
+                            try:
+                                alpha_vis = visualize_alpha_map(
+                                    outputs[("paba_alpha", 0, frame_id)][j],
+                                    cmap='viridis'
+                                )
+                                writer.add_image(
+                                    "paba/alpha_{}/{}".format(frame_id, j),
+                                    alpha_vis, self.step)
+                            except Exception as e:
+                                pass  # Skip if visualization fails
                     
 
     def save_opts(self):

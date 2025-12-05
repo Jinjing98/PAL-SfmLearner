@@ -17,5 +17,6 @@ from .visualise import (
     visualize_depth,
     visualize_depth_err,
     compute_depth_error_map,
+    visualize_alpha_map,
     img_gen
 )
