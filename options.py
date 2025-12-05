@@ -206,3 +206,8 @@ class MonodepthOptions:
     def parse(self):
         self.options = self.parser.parse_args()
         return self.options
+    
+    def parse_notebook(self, args):
+        """Parse arguments from a list (for notebook use)"""
+        self.options = self.parser.parse_args(args)
+        return self.options
