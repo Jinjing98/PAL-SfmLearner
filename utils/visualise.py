@@ -341,7 +341,11 @@ def _process_image_key(key, merged_dict, sample_idx, img_height):
         return vis_img, "depth_err"
     
     # Special handling for color_warp_err_before and color_warp_err_after
-    if key == "color_warp_err_before" or key == "color_warp_err_after":
+    # Supports both formats:
+    # - "color_warp_err_before" / "color_warp_err_after" (backward compatibility)
+    # - "color_warp_err_before_<image_name>" / "color_warp_err_after_<image_name>" (new format)
+    key_str = str(key)
+    if key_str.startswith("color_warp_err_before") or key_str.startswith("color_warp_err_after"):
         # Target is always ("color_aug", 0, 0)
         target_key = ("color_aug", 0, 0)
         
@@ -350,26 +354,46 @@ def _process_image_key(key, merged_dict, sample_idx, img_height):
             placeholder_width = int(img_height * 1.5)
             return np.ones((img_height, placeholder_width, 3), dtype=np.uint8) * 255, ""
         
+        # Extract image name from key if present
+        # Format: "color_warp_err_before_<image_name>" or "color_warp_err_after_<image_name>"
+        source_image_name = None
+        if key_str.startswith("color_warp_err_before_"):
+            source_image_name = key_str[len("color_warp_err_before_"):]
+        elif key_str.startswith("color_warp_err_after_"):
+            source_image_name = key_str[len("color_warp_err_after_"):]
+        
         # Find the corresponding warped/aligned image
-        # Search merged_dict for matching keys
         source_key = None
-        if key == "color_warp_err_before":
-            # Look for ("color_warp", 0, frame_id) - search all available keys
+        if source_image_name:
+            # New format: search for the specified image name
+            # Look for ("<source_image_name>", 0, frame_id) - search all available keys
             for k in merged_dict.keys():
                 if isinstance(k, tuple) and len(k) == 3:
-                    if k[0] == "color_warp" and k[1] == 0:
+                    if k[0] == source_image_name and k[1] == 0:
                         source_key = k
                         break
-        else:  # color_warp_err_after
-            # Look for ("paba_color_warp", 0, frame_id) - search all available keys
-            for k in merged_dict.keys():
-                if isinstance(k, tuple) and len(k) == 3:
-                    if k[0] == "paba_color_warp" and k[1] == 0:
-                        source_key = k
-                        break
+        else:
+            # Backward compatibility: use default image names
+            if key_str == "color_warp_err_before":
+                # Look for ("color_warp", 0, frame_id) - search all available keys
+                for k in merged_dict.keys():
+                    if isinstance(k, tuple) and len(k) == 3:
+                        if k[0] == "color_warp" and k[1] == 0:
+                            source_key = k
+                            break
+            else:  # color_warp_err_after (without suffix)
+                # Look for ("paba_color_warp", 0, frame_id) - search all available keys
+                for k in merged_dict.keys():
+                    if isinstance(k, tuple) and len(k) == 3:
+                        if k[0] == "paba_color_warp" and k[1] == 0:
+                            source_key = k
+                            break
         
         if source_key is None:
-            print(f"Warning: Could not find corresponding warped/aligned image for '{key}', using placeholder...")
+            if source_image_name:
+                print(f"Warning: Could not find image '{source_image_name}' for '{key}', using placeholder...")
+            else:
+                print(f"Warning: Could not find corresponding warped/aligned image for '{key}', using placeholder...")
             placeholder_width = int(img_height * 1.5)
             return np.ones((img_height, placeholder_width, 3), dtype=np.uint8) * 255, ""
         
@@ -383,7 +407,7 @@ def _process_image_key(key, merged_dict, sample_idx, img_height):
         
         # Compute error map
         error_vis = _compute_color_error_map(target_img, source_img, img_height)
-        return error_vis, key
+        return error_vis, key_str
     
     # Extract image from merged_dict
     img = _get_image_from_outputs(merged_dict, key, sample_idx)
