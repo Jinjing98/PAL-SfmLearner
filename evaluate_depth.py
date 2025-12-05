@@ -3,7 +3,7 @@ from __future__ import absolute_import, division, print_function
 import os
 import cv2
 import numpy as np
-
+from tqdm import tqdm
 import torch
 from torch.utils.data import DataLoader
 
@@ -52,6 +52,59 @@ def batch_post_process_disparity(l_disp, r_disp):
     return r_mask * l_disp + l_mask * r_disp + (1.0 - l_mask - r_mask) * m_disp
 
 
+def extract_gt_depths_from_batch(data, gt_depths_list):
+    """Extract GT depths from a data batch and append to gt_depths_list.
+    
+    Args:
+        data: Batch data dictionary from dataloader
+        gt_depths_list: List to append GT depths to (modified in place)
+    """
+    if ("depth_gt", 0, 0) in data:
+        batch_gt_depths = data[("depth_gt", 0, 0)].cpu().numpy()
+        # Remove channel dimension if present: (B, 1, H, W) or (B, H, W) -> (B, H, W)
+        if len(batch_gt_depths.shape) == 4:
+            batch_gt_depths = batch_gt_depths[:, 0]  # (B, 1, H, W) -> (B, H, W)
+        # Append each GT depth in the batch
+        for gt_idx in range(batch_gt_depths.shape[0]):
+            gt_depths_list.append(batch_gt_depths[gt_idx])
+
+
+def create_dataloader_for_gt_loading(opt, splits_dir, encoder_dict=None):
+    """Create a dataloader for loading GT depths on the fly.
+    
+    Args:
+        opt: Options object
+        splits_dir: Path to splits directory
+        encoder_dict: Optional encoder dict to get dimensions from (if None, will try to load)
+        
+    Returns:
+        dataloader: DataLoader for GT depth loading, or None if not supported
+    """
+    if opt.eval_split != "endovis":
+        return None
+    
+    filenames = readlines(os.path.join(splits_dir, opt.eval_split, opt.test_data_file))
+    
+    # Get dimensions from encoder_dict if provided, otherwise try to load or use opt values
+    if encoder_dict is not None:
+        height, width = encoder_dict.get('height', opt.height), encoder_dict.get('width', opt.width)
+    else:
+        try:
+            encoder_path = os.path.join(opt.load_weights_folder, "encoder.pth")
+            encoder_dict = torch.load(encoder_path)
+            height, width = encoder_dict.get('height', opt.height), encoder_dict.get('width', opt.width)
+        except:
+            height, width = opt.height, opt.width
+    
+    dataset_gt = datasets.SCAREDRAWDataset(opt.data_path, filenames,
+                                          height, width,
+                                          [0], 4, is_train=False)
+    dataloader_gt = DataLoader(dataset_gt, 16, shuffle=False, num_workers=opt.num_workers,
+                              pin_memory=True, drop_last=False)
+    
+    return dataloader_gt
+
+
 def evaluate(opt):
     """Evaluates a pretrained model using a specified test set
     """
@@ -61,6 +114,9 @@ def evaluate(opt):
     assert sum((opt.eval_mono, opt.eval_stereo)) == 1, \
         "Please choose mono or stereo evaluation by setting either --eval_mono or --eval_stereo"
 
+    # Initialize GT depths list (will be populated during prediction or from dataloader)
+    gt_depths_list = []
+    
     if opt.ext_disp_to_eval is None:
 
         opt.load_weights_folder = os.path.expanduser(opt.load_weights_folder)
@@ -75,7 +131,7 @@ def evaluate(opt):
         decoder_path = os.path.join(opt.load_weights_folder, "depth.pth")
 
         encoder_dict = torch.load(encoder_path)
-        if opt.eval_split=="endovis":
+        if opt.eval_split == "endovis":
             dataset = datasets.SCAREDRAWDataset(opt.data_path, filenames,
                                             encoder_dict['height'], encoder_dict['width'],
                                             [0], 4, is_train=False)
@@ -95,12 +151,13 @@ def evaluate(opt):
         depth_decoder.eval()
 
         pred_disps = []
+        # gt_depths_list already initialized above - will store GT depths on the fly
 
         print("-> Computing predictions with size {}x{}".format(
             encoder_dict['width'], encoder_dict['height']))
 
         with torch.no_grad():
-            for data in dataloader:
+            for data in tqdm(dataloader, desc="Computing predictions"):
                 input_color = data[("color", 0, 0)].cuda()
 
                 if opt.post_process:
@@ -116,6 +173,10 @@ def evaluate(opt):
                     pred_disp = batch_post_process_disparity(pred_disp[:N], pred_disp[N:, :, ::-1])
 
                 pred_disps.append(pred_disp)
+                
+                # Load GT depths on the fly from the same batch (only if not loading from npz)
+                if not opt.load_gt_from_npz:
+                    extract_gt_depths_from_batch(data, gt_depths_list)
 
         pred_disps = np.concatenate(pred_disps)
 
@@ -129,6 +190,16 @@ def evaluate(opt):
                 os.path.join(splits_dir, "benchmark", "eigen_to_benchmark_ids.npy"))
 
             pred_disps = pred_disps[eigen_to_benchmark_ids]
+        
+        # For external disparity evaluation, we still need to load GT depths
+        # Either from npz file or on the fly
+        if not opt.load_gt_from_npz:
+            # Create a dataloader just for GT depth loading
+            dataloader_gt = create_dataloader_for_gt_loading(opt, splits_dir, encoder_dict=None)
+            if dataloader_gt is not None:
+                # Load GT depths on the fly
+                for data in dataloader_gt:
+                    extract_gt_depths_from_batch(data, gt_depths_list)
 
     if opt.save_pred_disps:
         output_path = os.path.join(
@@ -136,8 +207,19 @@ def evaluate(opt):
         print("-> Saving predicted disparities to ", output_path)
         np.save(output_path, pred_disps)
 
-    gt_path = os.path.join(splits_dir, opt.eval_split, "gt_depths.npz")
-    gt_depths = np.load(gt_path, fix_imports=True, encoding='latin1')["data"]
+    # Load GT depths: either from npz file or use on-the-fly loaded depths
+    if opt.load_gt_from_npz:
+        # Load GT depths from npz file (all at once)
+        gt_path = os.path.join(splits_dir, opt.eval_split, "gt_depths.npz")
+        print("-> Loading GT depths from npz file: {}".format(gt_path))
+        gt_depths_npz = np.load(gt_path, fix_imports=True, encoding='latin1')["data"]
+        # Convert npz array to list format for consistency
+        gt_depths_list = [gt_depths_npz[i] for i in range(len(gt_depths_npz))]
+        print("-> Loaded {} GT depth maps from npz file".format(len(gt_depths_list)))
+    else:
+        # Use GT depths loaded on the fly from dataset
+        print("-> Using GT depths loaded on the fly from dataset")
+        print("-> Loaded {} GT depth maps".format(len(gt_depths_list)))
 
     print("-> Mono evaluation - using median scaling")
 
@@ -150,8 +232,12 @@ def evaluate(opt):
             os.makedirs(save_dir)
 
     for i in range(pred_disps.shape[0]):
-
-        gt_depth = gt_depths[i]
+        # Load GT depth on the fly from dataset
+        if i < len(gt_depths_list):
+            gt_depth = gt_depths_list[i]
+        else:
+            raise ValueError(f"GT depth not available for sample {i}. Expected {len(gt_depths_list)} samples, got index {i}")
+        
         gt_height, gt_width = gt_depth.shape[:2]
 
         pred_disp = pred_disps[i]
