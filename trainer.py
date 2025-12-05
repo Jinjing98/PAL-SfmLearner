@@ -7,6 +7,7 @@ import networks
 import torch.optim as optim
 from utils import *
 from layers import *
+from loss import SSIM, compute_losses
 from torch.utils.data import DataLoader
 from tensorboardX import SummaryWriter
 import torch.nn.functional as F
@@ -238,7 +239,7 @@ class Trainer:
         # decompose
         self.decompose(inputs,outputs)
 
-        losses = self.compute_losses(inputs, outputs)
+        losses = compute_losses(inputs, outputs, self.opt, self.ssim)
 
         return outputs, losses
 
@@ -320,43 +321,6 @@ class Trainer:
             
 
 
-    def compute_reprojection_loss(self, pred, target):
-
-        abs_diff = torch.abs(target - pred)
-        l1_loss = abs_diff.mean(1, True)
-        ssim_loss = self.ssim(pred, target).mean(1, True)
-        reprojection_loss = 0.85 * ssim_loss + 0.15 * l1_loss
-
-        return reprojection_loss
-
-    def compute_losses(self, inputs, outputs):
-
-        losses = {}
-        total_loss = 0
-        loss_reflec = 0
-        loss_reprojection = 0
-        loss_disp_smooth = 0
-        loss_reconstruction = 0
-
-        for frame_id in self.opt.frame_ids:
-            loss_reconstruction += (self.compute_reprojection_loss(inputs[("color_aug", frame_id, 0)], outputs[("reprojection_color", 0, frame_id)])).mean()
-
-        for frame_id in self.opt.frame_ids[1:]: 
-            mask = outputs[("valid_mask", 0, frame_id)]
-            loss_reflec += (torch.abs(outputs[("reflectance",0,0)] - outputs[("reflectance_warp", 0, frame_id)]).mean(1, True) * mask).sum() / mask.sum()
-            loss_reprojection += (self.compute_reprojection_loss(inputs[("color_aug", 0, 0)], outputs[("reprojection_color_warp", 0, frame_id)]) * mask).sum() / mask.sum()
-            
-        disp = outputs[("disp", 0)]
-        color = inputs[("color_aug", 0, 0)]
-        mean_disp = disp.mean(2, True).mean(3, True)
-        norm_disp = disp / (mean_disp + 1e-7)
-        loss_disp_smooth = get_smooth_loss(norm_disp, color)
-     
-        total_loss = self.opt.reprojection_constraint*loss_reprojection / 2.0 + self.opt.reflec_constraint*(loss_reflec / 2.0) + \
-                        self.opt.disparity_smoothness*loss_disp_smooth + self.opt.reconstruction_constraint*(loss_reconstruction/3.0)
-
-        losses["loss"] = total_loss
-        return losses
     
     def val(self):
         """Validate the model on a single minibatch
