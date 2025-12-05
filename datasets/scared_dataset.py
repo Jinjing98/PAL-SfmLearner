@@ -8,6 +8,8 @@ import torch
 
 from .mono_dataset import MonoDataset
 
+DEFAULT_D7K4_SCENE_POINTS_DIR='/mnt/nct-zfs/TCO-All/SharedDatasets/SCARED_Depth/dataset_7/keyframe_4/data/scene_points'
+DATA_PATH='/mnt/cluster/datasets/SCARED/'
 
 class SCAREDDataset(MonoDataset):
     def __init__(self, *args, **kwargs):
@@ -23,18 +25,19 @@ class SCAREDDataset(MonoDataset):
 
         # Load GT depths from npz file for validation (is_train=False)
         self.gt_depths_val = None
-        if not self.is_train:
-            # splits_dir is at the same level as datasets directory
-            splits_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "splits")
-            gt_path = os.path.join(splits_dir, 'endovis', "gt_depths_val.npz")
-            if os.path.exists(gt_path):
-                print("Loading GT depths from {}".format(gt_path))
-                self.gt_depths_val = np.load(gt_path, fix_imports=True, encoding='latin1')["data"]
-                print("Loaded {} GT depth maps".format(len(self.gt_depths_val)))
+        # if not self.is_train:
+        #     # splits_dir is at the same level as datasets directory
+        #     splits_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "splits")
+        #     gt_path = os.path.join(splits_dir, 'endovis', "gt_depths_val.npz")
+        #     if os.path.exists(gt_path):
+        #         print("Loading GT depths from {}".format(gt_path))
+        #         self.gt_depths_val = np.load(gt_path, fix_imports=True, encoding='latin1')["data"]
+        #         print("Loaded {} GT depth maps".format(len(self.gt_depths_val)))
 
     def check_depth(self):
         # Return True for validation to enable GT depth loading
         return not self.is_train
+        # return True
 
     def get_color(self, folder, frame_index, side, do_flip):
         color = self.loader(self.get_image_path(folder, frame_index, side))
@@ -62,17 +65,72 @@ class SCAREDRAWDataset(SCAREDDataset):
             return None
         
         # Otherwise, load from file
-        f_str = "scene_points{:06d}.tiff".format(frame_index)
+        #///////////////////////////////////////////////
+        # f_str = "scene_points{:06d}.tiff".format(frame_index)
 
-        depth_path = os.path.join(
-            self.data_path,
-            folder,
-            "image_0{}/data/groundtruth".format(self.side_map[side]),
-            f_str)
+        # depth_path = os.path.join(
+        #     self.data_path,
+        #     folder,
+        #     "image_0{}/data/groundtruth".format(self.side_map[side]),
+        #     f_str)
+        #///////////////////////////////////////////////
 
+        def parse_folder_tokens(folder_str):
+            # folder_str like 'dataset3/keyframe4' -> (3, 4)
+            dataset_part, keyframe_part = folder_str.split('/')
+            dataset_num = int(dataset_part.replace('dataset', ''))
+            keyframe_num = int(keyframe_part.replace('keyframe', ''))
+            return dataset_num, keyframe_num
+        dataset_num, keyframe_num = parse_folder_tokens(folder)
+        dataset_dir_candidates = [
+            "dataset_{:02d}".format(dataset_num),
+            "dataset_{}".format(dataset_num),
+            "dataset{}".format(dataset_num),
+        ]
+        keyframe_dir_candidates = [
+            "keyframe_{}".format(keyframe_num),
+            "keyframe{:d}".format(keyframe_num),
+        ]
+        f_str = "scene_points{:06d}.tiff".format(frame_index - 1)
+        depth_path = None
+        # Special override for dataset7/keyframe4
+        if dataset_num == 7 and keyframe_num == 4:
+            override_candidate = os.path.join(DEFAULT_D7K4_SCENE_POINTS_DIR, f_str)
+            if os.path.exists(override_candidate):
+                depth_path = override_candidate
+
+        # Default search under main data_path if not found via override
+        if not (dataset_num == 7 and keyframe_num == 4) and depth_path is None:
+            for subset in ["training", "testing"]:
+                for ddir in dataset_dir_candidates:
+                    for kdir in keyframe_dir_candidates:
+                        candidate = os.path.join(
+                            DATA_PATH,
+                            subset,
+                            ddir,
+                            kdir,
+                            "data",
+                            "scene_points",
+                            f_str
+                        )
+                        if os.path.exists(candidate):
+                            depth_path = candidate
+                            break
+                    if depth_path is not None:
+                        break
+                if depth_path is not None:
+                    break
+
+        if depth_path is None:
+            print("Warning: missing depth for {} frame {} (line {}).".format(folder, frame_index))
+            assert False, 'depth_path is None for folder: {} frame: {}'.format(folder, frame_index)
+        assert os.path.exists(depth_path), f"Depth file {depth_path} does not exist."
         depth_gt = cv2.imread(depth_path, 3)
         if depth_gt is None:
-            return None
+            print('Depth file is broken/None in path {} for folder: {} frame: {}'.format(depth_path, folder, frame_index))
+            print('We set broken depth to zeros...')
+            return np.zeros((1024, 1280))
+            # return None
         
         depth_gt = depth_gt[:, :, 0]
         depth_gt = depth_gt[0:1024, :]
@@ -103,7 +161,7 @@ if __name__ == "__main__":
     from utils import readlines
     
     # Configuration for testing
-    data_path = "/path/to/data"  # Update with your data path
+    data_path = "/mnt/nct-zfs/TCO-All/SharedDatasets/SCARED_Images_Resized/"
     height = 256
     width = 320
     frame_ids = [0, -1, 1]
@@ -112,6 +170,8 @@ if __name__ == "__main__":
     # Read validation filenames
     splits_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "splits")
     val_fpath = os.path.join(splits_dir, split, "val_files.txt")
+    val_fpath = os.path.join(splits_dir, split, "test_files.txt")
+    val_fpath = os.path.join(splits_dir, split, "train_files.txt")
     
     if not os.path.exists(val_fpath):
         print("Error: Validation split file not found at {}".format(val_fpath))
@@ -143,13 +203,16 @@ if __name__ == "__main__":
             print("WARNING: GT depths not loaded! Check if gt_depths_val.npz exists.")
         
         # Test loading a sample
-        if len(val_filenames) > 0:
+        num_samples = len(val_filenames)
+        for i in range(num_samples):
+        # if len(val_filenames) > 0:
             print("\n" + "-" * 60)
-            print("Testing __getitem__ for index 0")
+            print(f"Testing __getitem__ for index {i}")
             print("-" * 60)
             try:
-                sample = val_dataset[0]
-                print("Sample keys: {}".format(list(sample.keys())))
+                # sample = val_dataset[0]
+                sample = val_dataset[i]
+                # print("Sample keys: {}".format(list(sample.keys())))
                 
                 if ("depth_gt", 0, 0) in sample:
                     depth_gt = sample[("depth_gt", 0, 0)]
