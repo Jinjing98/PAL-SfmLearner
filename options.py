@@ -81,6 +81,7 @@ class MonodepthOptions:
                                  default="reprojection_color_warp",
                                  choices=["color_warp", 
                                  "reprojection_color_warp",
+                                 "afstyle_color_warp",
                                  "paba_color_warp"])
         self.parser.add_argument("--scales",
                                  nargs="+",

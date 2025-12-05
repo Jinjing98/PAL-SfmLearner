@@ -267,6 +267,8 @@ class Trainer:
             self.decompose(inputs,outputs)
         elif self.opt.reproj_supervise_type == "paba_color_warp":
             self.paba_alignment(inputs,outputs)
+        elif self.opt.reproj_supervise_type == "afstyle_color_warp":
+            self.afstyle_alignment(inputs,outputs)
         else:
             assert NotImplementedError(f"Invalid reproj_supervise_type: {self.opt.reproj_supervise_type}")
 
@@ -370,6 +372,83 @@ class Trainer:
             # Store alpha and beta maps for visualization
             outputs[("paba_alpha", 0, frame_id)] = alpha_map
             outputs[("paba_beta", 0, frame_id)] = beta_map
+
+    def afstyle_alignment(self, inputs, outputs):
+        """Compute outputs[("afstyle_color_warp", 0, frame_id)] using AFstyle module.
+        
+        This function:
+        1. Computes depth from disparity
+        2. Warps source images (frame_id) to target frame (0) using depth and pose
+        3. Computes warp_diff_color = abs(target - color_warp) * valid_mask
+        4. Uses adjust_net to predict transform from warp_diff_color
+        5. Directly adds transform to color_warp to get afstyle_color_warp (clamped to [0, 1])
+        """
+        # Get depth from disparity (same as paba_alignment and decompose)
+        disp = outputs[("disp", 0)]
+        disp = F.interpolate(disp, [self.opt.height, self.opt.width], mode="bilinear", align_corners=True)
+        _, depth = disp_to_depth(disp, self.opt.min_depth, self.opt.max_depth)
+        outputs[("depth", 0, 0)] = depth  # Store depth for metrics computation
+        
+        # Process each source frame (frame_ids[1:] are the source frames)
+        for i, frame_id in enumerate(self.opt.frame_ids[1:]):
+            # Get transformation from target (0) to source (frame_id)
+            T = outputs[("cam_T_cam", 0, frame_id)]
+            
+            # Backproject depth to 3D points
+            cam_points = self.backproject_depth[0](
+                depth, inputs[("inv_K", 0)])
+            
+            # Project 3D points to source frame pixel coordinates
+            pix_coords = self.project_3d[0](
+                cam_points, inputs[("K", 0)], T)
+            
+            outputs[("warp", 0, frame_id)] = pix_coords
+            
+            # Warp source image to target frame (geometric alignment)
+            warped_source = F.grid_sample(
+                inputs[("color_aug", frame_id, 0)],
+                outputs[("warp", 0, frame_id)],
+                padding_mode="border",
+                align_corners=True
+            )
+            
+            # Store raw warped source
+            outputs[("color_warp", 0, frame_id)] = warped_source
+            
+            # Create valid mask (same logic as paba_alignment and decompose)
+            mask_ones = torch.ones_like(inputs[("color_aug", frame_id, 0)])
+            mask_warp = F.grid_sample(
+                mask_ones,
+                outputs[("warp", 0, frame_id)],
+                padding_mode="zeros",
+                align_corners=True
+            )
+            valid_mask = (mask_warp.abs().mean(dim=1, keepdim=True) > 0.0).float()
+            outputs[("valid_mask", 0, frame_id)] = valid_mask
+            
+            # Compute warp_diff_color: absolute difference between target and warped source
+            # Same as in decompose function
+            outputs[("warp_diff_color", 0, frame_id)] = torch.abs(
+                inputs[("color_aug", 0, 0)] - outputs[("color_warp", 0, frame_id)]
+            ) * valid_mask
+            
+            # Use adjust_net to predict transform from warp_diff_color
+            # Same as in decompose function
+            outputs[("transform", 0, frame_id)] = self.models["adjust_net"](
+                outputs[("warp_diff_color", 0, frame_id)]
+            )
+            
+            # Directly add transform to color_warp to get afstyle_color_warp
+            # This is the key difference from decompose: we add transform directly to color_warp
+            # instead of adding it to light_warp and then multiplying with reflectance_warp
+            outputs[("afstyle_color_warp", 0, frame_id)] = (
+                outputs[("color_warp", 0, frame_id)] + outputs[("transform", 0, frame_id)]
+            )
+            
+            # Clamp to valid range [0, 1]
+            outputs[("afstyle_color_warp", 0, frame_id)] = torch.clamp(
+                outputs[("afstyle_color_warp", 0, frame_id)], min=0.0, max=1.0
+            )
 
     def decompose(self,inputs,outputs):
         for f_i in self.opt.frame_ids:
