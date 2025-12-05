@@ -87,21 +87,30 @@ def compute_reprojection_loss(pred, target, ssim):
 
 def compute_losses(inputs, outputs, opt, ssim):
     """Computes all losses for the model
+    
+    Returns:
+        losses: dict containing 'loss' (total weighted loss) and all sub-losses (raw, unweighted)
     """
-    losses = {}
-    total_loss = 0
+    # Initialize all losses
+    loss_reconstruction = 0
     loss_reflec = 0
     loss_reprojection = 0
     loss_disp_smooth = 0
-    loss_reconstruction = 0
-
+    
+    # Count dividends
+    num_frame_ids = len(opt.frame_ids)
+    num_pose_frames = len(opt.frame_ids[1:])
+    
+    # Reconstruction loss (averaged over all frame_ids)
     for frame_id in opt.frame_ids:
         loss_reconstruction += (compute_reprojection_loss(
             inputs[("color_aug", frame_id, 0)], 
             outputs[("reprojection_color", 0, frame_id)],
             ssim
         )).mean()
+    loss_reconstruction = loss_reconstruction / num_frame_ids
 
+    # Reflectance and reprojection losses (averaged over frame_ids[1:])
     for frame_id in opt.frame_ids[1:]: 
         mask = outputs[("valid_mask", 0, frame_id)]
         loss_reflec += (torch.abs(
@@ -112,18 +121,32 @@ def compute_losses(inputs, outputs, opt, ssim):
             outputs[("reprojection_color_warp", 0, frame_id)],
             ssim
         ) * mask).sum() / mask.sum()
+    
+    if num_pose_frames > 0:
+        loss_reflec = loss_reflec / num_pose_frames
+        loss_reprojection = loss_reprojection / num_pose_frames
             
+    # Disparity smoothness loss
     disp = outputs[("disp", 0)]
     color = inputs[("color_aug", 0, 0)]
     mean_disp = disp.mean(2, True).mean(3, True)
     norm_disp = disp / (mean_disp + 1e-7)
     loss_disp_smooth = get_smooth_loss(norm_disp, color)
  
-    total_loss = (opt.reprojection_constraint * loss_reprojection / 2.0 + 
-                  opt.reflec_constraint * (loss_reflec / 2.0) + 
+    # Total weighted loss
+    total_loss = (opt.reprojection_constraint * loss_reprojection + 
+                  opt.reflec_constraint * loss_reflec + 
                   opt.disparity_smoothness * loss_disp_smooth + 
-                  opt.reconstruction_constraint * (loss_reconstruction / 3.0))
-
-    losses["loss"] = total_loss
+                  opt.reconstruction_constraint * loss_reconstruction)
+    
+    # Return all losses
+    losses = {
+        "loss": total_loss,
+        "loss_reconstruction": loss_reconstruction,
+        "loss_reflec": loss_reflec,
+        "loss_reprojection": loss_reprojection,
+        "loss_disp_smooth": loss_disp_smooth
+    }
+    
     return losses
 

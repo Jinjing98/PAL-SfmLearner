@@ -21,6 +21,10 @@ CUDA_VISIBLE_DEVICES=0 python \
 --num_epochs 30 \
 --batch_size 8 \
 --log_frequency 200 \
+--disparity_smoothness 0.01 \
+--reconstruction_constraint 0.2 \
+--reflec_constraint 0.2 \
+--reprojection_constraint 1 \
 --log_dir /mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm/iidsfm \
 --data_path /mnt/nct-zfs/TCO-All/SharedDatasets/SCARED_Images_Resized/ \
 --of_samples --of_samples_num 16 --save_frequency 10000 --log_frequency 200 --num_epochs 50000 \

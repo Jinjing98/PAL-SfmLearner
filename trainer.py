@@ -356,8 +356,10 @@ class Trainer:
         """Write an event to the tensorboard events file
         """
         writer = self.writers[mode]
+        # losses_prefix = "losses/trn_" if mode == "train" else "losses/val_"
+        losses_prefix = "losses"
         for l, v in losses.items():
-            writer.add_scalar("{}".format(l), v, self.step)
+            writer.add_scalar("{}/{}".format(losses_prefix, l), v, self.step)
 
         for j in range(min(4, self.opt.batch_size)):  # write a maxmimum of four images
                 writer.add_image(
