@@ -38,9 +38,9 @@ class SCAREDRAWDataset(SCAREDDataset):
         super(SCAREDRAWDataset, self).__init__(*args, **kwargs)
 
     def get_image_path(self, folder, frame_index, side):
-        f_str = "{:06d}{}".format(frame_index, self.img_ext)
+        f_str = "{:010d}{}".format(frame_index, self.img_ext)
         image_path = os.path.join(
-            self.data_path, folder, "left_img", f_str)
+            self.data_path, folder, "image_02/data", f_str)
 
         return image_path
 
