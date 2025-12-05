@@ -91,6 +91,10 @@ def compute_losses(inputs, outputs, opt, ssim):
     Returns:
         losses: dict containing 'loss' (total weighted loss) and all sub-losses (raw, unweighted)
     """
+    # Determine supervision mode
+    # is_decompose_mode = opt.reproj_supervise_type != "paba_color_warp"
+    is_decompose_mode = opt.reproj_supervise_type == "reprojection_color_warp"
+    
     # Initialize all losses
     loss_reconstruction = 0
     loss_reflec = 0
@@ -101,30 +105,43 @@ def compute_losses(inputs, outputs, opt, ssim):
     num_frame_ids = len(opt.frame_ids)
     num_pose_frames = len(opt.frame_ids[1:])
     
-    # Reconstruction loss (averaged over all frame_ids)
-    for frame_id in opt.frame_ids:
-        loss_reconstruction += (compute_reprojection_loss(
-            inputs[("color_aug", frame_id, 0)], 
-            outputs[("reprojection_color", 0, frame_id)],
-            ssim
-        )).mean()
-    loss_reconstruction = loss_reconstruction / num_frame_ids
+    # ============================================================
+    # Decompose-based losses (only for decompose methods)
+    # ============================================================
+    if is_decompose_mode:
+        # Reconstruction loss (averaged over all frame_ids)
+        for frame_id in opt.frame_ids:
+            loss_reconstruction += (compute_reprojection_loss(
+                inputs[("color_aug", frame_id, 0)], 
+                outputs[("reprojection_color", 0, frame_id)],
+                ssim
+            )).mean()
+        loss_reconstruction = loss_reconstruction / num_frame_ids
 
-    # Reflectance and reprojection losses (averaged over frame_ids[1:])
-    reproj_supervise_type = opt.reproj_supervise_type
+    # ============================================================
+    # Reprojection and reflectance losses (for all source frames)
+    # ============================================================
     for frame_id in opt.frame_ids[1:]: 
         mask = outputs[("valid_mask", 0, frame_id)]
-        loss_reflec += (torch.abs(
-            outputs[("reflectance", 0, 0)] - outputs[("reflectance_warp", 0, frame_id)]
-        ).mean(1, True) * mask).sum() / mask.sum()
+        
+        # Reflectance loss (only for decompose-based methods)
+        if is_decompose_mode:
+            loss_reflec += (torch.abs(
+                outputs[("reflectance", 0, 0)] - outputs[("reflectance_warp", 0, frame_id)]
+            ).mean(1, True) * mask).sum() / mask.sum()
+        
+        # Reprojection loss (works for all supervision types)
+        supervise_which = outputs[(opt.reproj_supervise_type, 0, frame_id)]
         loss_reprojection += (compute_reprojection_loss(
             inputs[("color_aug", 0, 0)], 
-            outputs[(reproj_supervise_type, 0, frame_id)],
+            supervise_which,
             ssim
         ) * mask).sum() / mask.sum()
     
+    # Normalize losses by number of frames
     if num_pose_frames > 0:
-        loss_reflec = loss_reflec / num_pose_frames
+        if is_decompose_mode:
+            loss_reflec = loss_reflec / num_pose_frames
         loss_reprojection = loss_reprojection / num_pose_frames
             
     # Disparity smoothness loss

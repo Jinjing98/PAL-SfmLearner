@@ -128,7 +128,16 @@ class Trainer:
         for mode in ["train", "val"]:
             self.writers[mode] = SummaryWriter(os.path.join(self.log_path, mode))
 
-        
+        # inti paba
+        if self.opt.reproj_supervise_type == "paba_color_warp":
+            self.paba = networks.paba.LocalAffineAlignment(
+                patch_size=8,
+                eps=1e-6,
+                min_valid_ratio=0.1,
+                interp_mode='bilinear',
+            )
+            self.paba.to(self.device)
+
         self.ssim = SSIM()
         self.ssim.to(self.device)
 
@@ -177,6 +186,8 @@ class Trainer:
         self.models["decompose_encoder"].train()
         self.models["decompose"].train()
         self.models["adjust_net"].train()
+        if self.opt.reproj_supervise_type == "paba_color_warp":
+            self.paba.train()
 
 
     def set_eval(self):
@@ -189,6 +200,8 @@ class Trainer:
         self.models["decompose_encoder"].eval()
         self.models["decompose"].eval()
         self.models["adjust_net"].eval()
+        if self.opt.reproj_supervise_type == "paba_color_warp":
+            self.paba.eval()
        
 
     def train(self):
@@ -248,7 +261,12 @@ class Trainer:
         outputs.update(self.predict_poses(inputs))
 
         # decompose
-        self.decompose(inputs,outputs)
+        if self.opt.reproj_supervise_type in ['color_warp', 'reprojection_color_warp']:
+            self.decompose(inputs,outputs)
+        elif self.opt.reproj_supervise_type == "paba_color_warp":
+            self.paba_alignment(inputs,outputs)
+        else:
+            assert NotImplementedError(f"Invalid reproj_supervise_type: {self.opt.reproj_supervise_type}")
 
         losses = compute_losses(inputs, outputs, self.opt, self.ssim)
 
@@ -281,6 +299,74 @@ class Trainer:
          
         return outputs
     
+    def paba_alignment(self, inputs, outputs):
+        """Compute outputs[("paba_color_warp", 0, frame_id)] using PABA module.
+        
+        This function:
+        1. Computes depth from disparity
+        2. Warps source images (frame_id) to target frame (0) using depth and pose
+        3. Applies PABA to align warped source images to target, removing illumination differences
+        4. Stores the aligned result as outputs[("paba_color_warp", 0, frame_id)]
+        """
+        # Get depth from disparity (same as decompose)
+        disp = outputs[("disp", 0)]
+        disp = F.interpolate(disp, [self.opt.height, self.opt.width], mode="bilinear", align_corners=True)
+        _, depth = disp_to_depth(disp, self.opt.min_depth, self.opt.max_depth)
+        outputs[("depth", 0, 0)] = depth  # Store depth for metrics computation
+        
+        # Process each source frame (frame_ids[1:] are the source frames)
+        for i, frame_id in enumerate(self.opt.frame_ids[1:]):
+            # Get transformation from target (0) to source (frame_id)
+            T = outputs[("cam_T_cam", 0, frame_id)]
+            
+            # Backproject depth to 3D points
+            cam_points = self.backproject_depth[0](
+                depth, inputs[("inv_K", 0)])
+            
+            # Project 3D points to source frame pixel coordinates
+            pix_coords = self.project_3d[0](
+                cam_points, inputs[("K", 0)], T)
+            
+            outputs[("warp", 0, frame_id)] = pix_coords
+            
+            # Warp source image to target frame (geometric alignment)
+            # This is the "warped_source" that needs brightness alignment
+            warped_source = F.grid_sample(
+                inputs[("color_aug", frame_id, 0)],
+                outputs[("warp", 0, frame_id)],
+                padding_mode="border",
+                align_corners=True
+            )
+            
+            # Create valid mask (same logic as decompose)
+            mask_ones = torch.ones_like(inputs[("color_aug", frame_id, 0)])
+            mask_warp = F.grid_sample(
+                mask_ones,
+                outputs[("warp", 0, frame_id)],
+                padding_mode="zeros",
+                align_corners=True
+            )
+            valid_mask = (mask_warp.abs().mean(dim=1, keepdim=True) > 0.0).float()
+            outputs[("valid_mask", 0, frame_id)] = valid_mask
+            
+            # Apply PABA: align warped_source to target (frame 0)
+            # Target: inputs[("color_aug", 0, 0)]
+            # Warped Source: warped_source
+            # Valid Mask: valid_mask
+            target_img = inputs[("color_aug", 0, 0)]
+            
+            aligned_warped_source, alpha_map, beta_map = self.paba(
+                target_img, warped_source, valid_mask
+            )
+            
+            # Store the PABA-aligned image for reprojection loss
+            outputs[("paba_color_warp", 0, frame_id)] = aligned_warped_source
+            
+            # Optionally store alpha and beta maps for visualization
+            # (useful for debugging and understanding PABA behavior)
+            outputs[("paba_alpha", 0, frame_id)] = alpha_map
+            outputs[("paba_beta", 0, frame_id)] = beta_map
+
     def decompose(self,inputs,outputs):
         for f_i in self.opt.frame_ids:
             decompose_features = self.models["decompose_encoder"](inputs[("color_aug",f_i,0)])

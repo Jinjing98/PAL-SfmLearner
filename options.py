@@ -79,7 +79,9 @@ class MonodepthOptions:
                                  type=str,
                                  help="type of reprojection supervision: 'color_warp' or 'reprojection_color_warp'",
                                  default="reprojection_color_warp",
-                                 choices=["color_warp", "reprojection_color_warp"])
+                                 choices=["color_warp", 
+                                 "reprojection_color_warp",
+                                 "paba_color_warp"])
         self.parser.add_argument("--scales",
                                  nargs="+",
                                  type=int,
