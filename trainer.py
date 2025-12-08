@@ -75,7 +75,10 @@ class Trainer:
         self.models["pose"] = networks.PoseDecoder(
             self.models["pose_encoder"].num_ch_enc,
             num_input_features=1,
-            num_frames_to_predict_for=2)
+            num_frames_to_predict_for=2,
+            trans_scale_factor=self.opt.trans_scale_factor,
+            rot_scale_factor=self.opt.rot_scale_factor,
+            rot_representation=self.opt.rot_representation)
         self.models["pose"].to(self.device)
         self.parameters_to_train += list(self.models["pose"].parameters())
 
@@ -365,7 +368,17 @@ class Trainer:
             aligned_warped_source, alpha_map, beta_map = self.paba(
                 target_img, warped_source, valid_mask
             )
-            
+
+            #/////
+            # introduce adjust net in PABA
+            # we verify the positive effect of apply adjust net here.
+            outputs[("warp_diff_color", 0, frame_id)] = torch.abs(
+                inputs[("color_aug", 0, 0)] - aligned_warped_source
+            ) * valid_mask
+            outputs[("transform", 0, frame_id)] = self.models["adjust_net"](outputs[("warp_diff_color", 0, frame_id)])
+            aligned_warped_source = aligned_warped_source + outputs[("transform", 0, frame_id)]
+            #/////
+
             # Store the PABA-aligned image for reprojection loss
             outputs[("paba_color_warp", 0, frame_id)] = aligned_warped_source
             

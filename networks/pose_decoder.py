@@ -6,8 +6,12 @@ from collections import OrderedDict
 
 
 class PoseDecoder(nn.Module):
-    def __init__(self, num_ch_enc, num_input_features, num_frames_to_predict_for=None, stride=1):
+    def __init__(self, num_ch_enc, num_input_features, num_frames_to_predict_for=None, stride=1, trans_scale_factor=0.001, rot_scale_factor=0.001, rot_representation="angle_axis"):
         super(PoseDecoder, self).__init__()
+
+        self.trans_scale_factor = trans_scale_factor
+        self.rot_scale_factor = rot_scale_factor
+        self.rot_representation = rot_representation
 
         self.num_ch_enc = num_ch_enc
         self.num_input_features = num_input_features
@@ -20,7 +24,16 @@ class PoseDecoder(nn.Module):
         self.convs[("squeeze")] = nn.Conv2d(self.num_ch_enc[-1], 256, 1)
         self.convs[("pose", 0)] = nn.Conv2d(num_input_features * 256, 256, 3, stride, 1)
         self.convs[("pose", 1)] = nn.Conv2d(256, 256, 3, stride, 1)
-        self.convs[("pose", 2)] = nn.Conv2d(256, 6 * num_frames_to_predict_for, 1)
+
+        # adapt to different rotation representations
+        self.trans_vec_dim = 3
+        if self.rot_representation == "angle_axis":
+            self.rot_vec_dim = 3
+        elif self.rot_representation == "9D":
+            self.rot_vec_dim = 9
+        elif self.rot_representation == "6D":
+            self.rot_vec_dim = 6
+        self.convs[("pose", 2)] = nn.Conv2d(256, (self.trans_vec_dim + self.rot_vec_dim) * num_frames_to_predict_for, 1)
 
         self.relu = nn.ReLU()
 
@@ -40,9 +53,17 @@ class PoseDecoder(nn.Module):
 
         out = out.mean(3).mean(2)
 
-        out = 0.001*out.view(-1, self.num_frames_to_predict_for, 1, 6)
+        if self.rot_representation == "angle_axis":
+            # out = 0.001*out.view(-1, self.num_frames_to_predict_for, 1, 6)
+            out = out.view(-1, self.num_frames_to_predict_for, 1, self.trans_vec_dim + self.rot_vec_dim)
 
-        axisangle = out[..., :3]
-        translation = out[..., 3:]
+            axisangle = self.rot_scale_factor*out[..., :3]
+            translation = self.trans_scale_factor*out[..., 3:]
+            return axisangle, translation
+        elif self.rot_representation == "9D":
+            pass
+        elif self.rot_representation == "6D":
+            pass    
 
-        return axisangle, translation
+        
+

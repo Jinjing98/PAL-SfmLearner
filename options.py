@@ -101,6 +101,22 @@ class MonodepthOptions:
                                  type=int,
                                  help="frames to load",
                                  default=[0, -1, 1])
+        # Pose Net setting
+        self.parser.add_argument("--trans_scale_factor",
+                                 type=float,
+                                 help="translation scale factor",
+                                 default=0.001)
+        self.parser.add_argument("--rot_scale_factor",
+                                 type=float,
+                                 help="rotation scale factor",
+                                 default=0.001)
+        self.parser.add_argument("--rot_representation",
+                                 type=str,
+                                 help="pose net type",
+                                 default="angle_axis",
+                                 choices=["9D", "6D", "angle_axis"])
+                                 
+
 
         # OPTIMIZATION options
         self.parser.add_argument("--batch_size",

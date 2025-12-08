@@ -132,6 +132,17 @@ def compute_losses(inputs, outputs, opt, ssim):
         
         # Reprojection loss (works for all supervision types)
         supervise_which = outputs[(opt.reproj_supervise_type, 0, frame_id)]
+
+        # debug_af_ori_correct_tgt = True
+        # if debug_af_ori_correct_tgt and opt.reproj_supervise_type == "afstyle_color_warp":
+        #     # apply the learned delta on gt_tgt img; while warped_src is the raw one.
+        #     loss_reprojection += (compute_reprojection_loss(
+        #         inputs[("color_aug", 0, 0)] - outputs[("transform", 0, frame_id)], 
+        #         outputs[("color_warp", 0, frame_id)],
+        #         ssim
+        #     ) * mask).sum() / mask.sum()
+        #     continue
+
         loss_reprojection += (compute_reprojection_loss(
             inputs[("color_aug", 0, 0)], 
             supervise_which,
