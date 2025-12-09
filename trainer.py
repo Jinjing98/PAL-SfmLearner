@@ -83,6 +83,28 @@ class Trainer:
         self.models["pose"].to(self.device)
         self.parameters_to_train += list(self.models["pose"].parameters())
 
+        # Hardcoded flag: enable learnable camera intrinsics
+        # hard coded
+        self.learnable_K = False
+        self.replace_with_gt_rel_rotation = False
+
+        # Initialize learnable camera intrinsics (normalized coordinates)
+        # fx, fy, cx, cy = 0.82, 1.02, 0.5, 0.5
+        if self.learnable_K:
+            # Initialize K in normalized coordinates (will be scaled per scale)
+            K_init = torch.tensor([
+                [0.82, 0.0, 0.5, 0.0],
+                [0.0, 1.02, 0.5, 0.0],
+                [0.0, 0.0, 1.0, 0.0],
+                [0.0, 0.0, 0.0, 1.0]
+            ], dtype=torch.float32, device=self.device)
+            
+            # Make it learnable (only the intrinsic parameters, not the last row/col)
+            self.learnable_K_params = torch.nn.Parameter(K_init[:3, :3].clone())
+            self.learnable_K_params.to(self.device)
+            self.parameters_to_train.append(self.learnable_K_params)
+            print("Learnable camera intrinsics enabled")
+
         self.model_optimizer = optim.Adam(self.parameters_to_train,self.opt.learning_rate)
         self.model_lr_scheduler = optim.lr_scheduler.MultiStepLR(
             self.model_optimizer, [self.opt.scheduler_step_size], 0.1)
@@ -290,9 +312,49 @@ class Trainer:
 
         return outputs, losses
 
+    def get_K_invK(self, inputs, scale, batch_size):
+        """
+        Get camera intrinsics K and inv_K for a given scale.
+        If learnable_K is enabled, use learned intrinsics; otherwise use inputs.
+        
+        Args:
+            inputs: Input batch dictionary
+            scale: Scale level (0, 1, 2, 3)
+            batch_size: Batch size
+            
+        Returns:
+            K: (B, 4, 4) camera intrinsics matrix
+            inv_K: (B, 4, 4) inverse camera intrinsics matrix
+        """
+        if self.learnable_K:
+            # Get learned K in normalized coordinates
+            K_norm = torch.zeros(4, 4, device=self.device, dtype=torch.float32)
+            K_norm[:3, :3] = self.learnable_K_params
+            K_norm[3, 3] = 1.0
+            
+            # Scale for the current scale level
+            h = self.opt.height // (2 ** scale)
+            w = self.opt.width // (2 ** scale)
+            
+            K_scaled = K_norm.clone()
+            K_scaled[0, :] *= w  # Scale fx and cx by width
+            K_scaled[1, :] *= h  # Scale fy and cy by height
+            
+            # Expand to batch size
+            K = K_scaled.unsqueeze(0).repeat(batch_size, 1, 1)
+            
+            # Compute inv_K
+            inv_K = torch.inverse(K)
+            
+            return K, inv_K
+        else:
+            # Use intrinsics from inputs
+            return inputs[("K", scale)], inputs[("inv_K", scale)]
+
     def predict_poses(self, inputs):
         """Predict poses between input frames for monocular sequences.
         """
+        
         outputs = {}
         if self.num_pose_frames == 2:
            
@@ -304,7 +366,10 @@ class Trainer:
                     if f_i < 0:
                         inputs_all = [pose_feats[f_i], pose_feats[0]]
                     else:
-                        inputs_all = [pose_feats[0], pose_feats[f_i]]                                                                    
+                        # transformation_from_parameters will invert accordingly
+                        inputs_all = [pose_feats[0], pose_feats[f_i]]
+
+                    # inputs_all = [pose_feats[f_i], pose_feats[0]]
 
                     # pose
                     pose_inputs = [self.models["pose_encoder"](torch.cat(inputs_all, 1))]
@@ -326,6 +391,25 @@ class Trainer:
                             rot_output[:, 0], translation[:, 0], invert=(f_i < 0))
                     else:
                         assert NotImplementedError(f"Invalid rot_representation: {self.opt.rot_representation}")
+                    
+                    # Debug: Replace with GT relative rotation if enabled and GT poses are available
+                    if self.replace_with_gt_rel_rotation:
+                        if ("gt_c2w_poses", 0) in inputs and ("gt_c2w_poses", f_i) in inputs:
+                            # Get GT absolute poses
+                            gt_tgt_abs_poses = inputs[("gt_c2w_poses", 0)]  # (B, 4, 4)
+                            gt_src_abs_poses = inputs[("gt_c2w_poses", f_i)]  # (B, 4, 4)
+                            
+                            # Compute GT relative pose: T_target_to_source = inv(T_source) @ T_target
+                            # Note: The network always outputs target_to_source after transformation_from_parameters
+                            # (the invert flag handles the conversion internally)
+                            gt_tgt2src_rel_poses = torch.inverse(gt_src_abs_poses) @ gt_tgt_abs_poses
+                            
+                            # Always use target_to_source directly (network output is always target_to_source)
+                            outputs[("cam_T_cam", 0, f_i)][:, :3, :3] = gt_tgt2src_rel_poses[:, :3, :3]
+                            
+                            # Optionally, also update translation to match GT
+                            # outputs[("translation", 0, f_i)] = gt_tgt2src_rel_poses[:, :3, 3:4].squeeze(-1)  # (B, 3)
+        
         return outputs
     
     def paba_alignment(self, inputs, outputs):
@@ -348,13 +432,16 @@ class Trainer:
             # Get transformation from target (0) to source (frame_id)
             T = outputs[("cam_T_cam", 0, frame_id)]
             
+            # Get camera intrinsics (learned or from inputs)
+            K, inv_K = self.get_K_invK(inputs, 0, depth.shape[0])
+            
             # Backproject depth to 3D points
             cam_points = self.backproject_depth[0](
-                depth, inputs[("inv_K", 0)])
+                depth, inv_K)
             
             # Project 3D points to source frame pixel coordinates
             pix_coords = self.project_3d[0](
-                cam_points, inputs[("K", 0)], T)
+                cam_points, K, T)
             
             outputs[("warp", 0, frame_id)] = pix_coords
             
@@ -429,13 +516,16 @@ class Trainer:
             # Get transformation from target (0) to source (frame_id)
             T = outputs[("cam_T_cam", 0, frame_id)]
             
+            # Get camera intrinsics (learned or from inputs)
+            K, inv_K = self.get_K_invK(inputs, 0, depth.shape[0])
+            
             # Backproject depth to 3D points
             cam_points = self.backproject_depth[0](
-                depth, inputs[("inv_K", 0)])
+                depth, inv_K)
             
             # Project 3D points to source frame pixel coordinates
             pix_coords = self.project_3d[0](
-                cam_points, inputs[("K", 0)], T)
+                cam_points, K, T)
             
             outputs[("warp", 0, frame_id)] = pix_coords
             
@@ -498,10 +588,14 @@ class Trainer:
         
         for i, frame_id in enumerate(self.opt.frame_ids[1:]):
             T = outputs[("cam_T_cam", 0, frame_id)]
+            
+            # Get camera intrinsics (learned or from inputs)
+            K, inv_K = self.get_K_invK(inputs, 0, depth.shape[0])
+            
             cam_points = self.backproject_depth[0](
-                depth, inputs[("inv_K", 0)])
+                depth, inv_K)
             pix_coords = self.project_3d[0](
-                cam_points, inputs[("K", 0)], T)
+                cam_points, K, T)
 
             outputs[("warp", 0, frame_id)] = pix_coords
 
@@ -594,6 +688,19 @@ class Trainer:
             metrics_prefix = "metrics"
             for m, v in metrics.items():
                 writer.add_scalar("{}/{}".format(metrics_prefix, m), v, self.step)
+        
+        # Log learned camera intrinsics if enabled
+        if self.learnable_K:
+            # Extract fx, fy, cx, cy from learned K (normalized coordinates)
+            fx = self.learnable_K_params[0, 0].item()
+            fy = self.learnable_K_params[1, 1].item()
+            cx = self.learnable_K_params[0, 2].item()
+            cy = self.learnable_K_params[1, 2].item()
+            
+            writer.add_scalar("intrinsics/fx", fx, self.step)
+            writer.add_scalar("intrinsics/fy", fy, self.step)
+            writer.add_scalar("intrinsics/cx", cx, self.step)
+            writer.add_scalar("intrinsics/cy", cy, self.step)
 
         for j in range(min(4, self.opt.batch_size)):  # write a maxmimum of four images
                 writer.add_image(

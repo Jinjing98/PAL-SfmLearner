@@ -36,21 +36,29 @@ CUDA_VISIBLE_DEVICES=0 python \
 --exp_suffix d6_kf2_IID_baseline \
 --exp_suffix d6_kf2_afstyle_refTgt_baseline \
 --exp_suffix d6_kf2_PABA_with_adjustNet \
---reflec_constraint 0.0 \
---reproj_supervise_type reprojection_color_warp \
 --reproj_supervise_type color_warp \
 --reproj_supervise_type afstyle_color_warp \
 --reproj_supervise_type paba_color_warp \
+--reproj_supervise_type reprojection_color_warp \
+--reflec_constraint 0.0 \
 --trans_scale_factor 0.001 \
 --rot_scale_factor 0.001 \
---rot_representation angle_axis \
---rot_representation 9D \
---rot_representation 6D \
 --explicit_bias_init_6d9d \
---of_samples --train_data_file val_files.txt --val_data_file val_files.txt  --of_samples_num 16 --save_frequency 10000 --log_frequency 200 --num_epochs 50000 --log_dir /mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm/iidsfm_dbg \
+--rot_representation 6D \
+--rot_representation angle_axis \
+--exp_suffix d6_kf2_PABA_with_adjustNet_6D \
+--exp_suffix d6_kf2_PABA_with_adjustNet_6D_gt_rot \
+--exp_suffix d6_kf2_PABA_with_adjustNet_6D_gt_rot_learnK \
+--exp_suffix d6_kf2_IID_baseline_again \
+
+# --exp_suffix angleaxis_use_gt_rot \
+# --exp_suffix d6_kf2_PABA_with_adjustNet_gt_rot \
+# --of_samples --train_data_file val_files.txt --val_data_file val_files.txt  --of_samples_num 16 --save_frequency 10000 --log_frequency 300 --num_epochs 500 --log_dir /mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm/iidsfm_dbg \
 # --reproj_supervise_type paba_color_warp \
 # --exp_suffix d6_kf2_afsfm_like \
 
 # 122093 d6_kf2_monov2_like: --reflec_constraint 0.0 --reproj_supervise_type color_warp  \
 # 122111 d6_kf2_IID_baseline
 # 122202 d6_kf2_afstyle_baseline
+
+#122668  d6_kf2_PABA_with_adjustNet_6D
