@@ -245,6 +245,10 @@ class MonodepthOptions:
         self.parser.add_argument("--load_gt_from_npz",
                                  help="if set loads GT depths from npz file instead of on the fly",
                                  action="store_true")
+        self.parser.add_argument("--save_poses_root",
+                                 help="root directory to save pose predictions",
+                                 type=str,
+                                 default=None)
 
     def parse(self):
         self.options = self.parser.parse_args()
