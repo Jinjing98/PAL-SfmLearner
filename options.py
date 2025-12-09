@@ -249,6 +249,25 @@ class MonodepthOptions:
                                  help="root directory to save pose predictions",
                                  type=str,
                                  default=None)
+        
+        # visualise pose traj func
+        self.parser.add_argument("--eval_model_appendix",
+                                 help="appendix to add to saved pose prediction filename",
+                                 type=str,
+                                 default="")
+        self.parser.add_argument("--plot_xyz_rpy",
+                                 help="if set plots xyz and rpy components",
+                                 action="store_true")
+        self.parser.add_argument("--plot_conf",
+                                 help="if set plots confidence values",
+                                 action="store_true")
+        self.parser.add_argument("--debug_only",
+                                 help="if set limits number of frames for debugging",
+                                 action="store_true")
+        self.parser.add_argument("--plot_num",
+                                 help="number of frames to plot when debug_only is set",
+                                 type=int,
+                                 default=None)
 
     def parse(self):
         self.options = self.parser.parse_args()
