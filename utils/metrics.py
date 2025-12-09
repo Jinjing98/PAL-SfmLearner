@@ -1,5 +1,6 @@
 import numpy as np
 import cv2
+import torch
 
 def compute_depth_errors(gt, pred):
     """Computation of error metrics between predicted and ground truth depths
@@ -115,3 +116,184 @@ def compute_depth_metrics(inputs, outputs):
         depth_metrics['median_scaling_std'] = np.std(ratios / np.median(ratios))
     
     return depth_metrics
+
+
+def transl_ang_loss(t, tgt, eps=1e-6):
+    """
+    Compute translation direction angular error.
+    Args: 
+        t: estimated translation vector [B, 3]
+        tgt: ground-truth translation vector [B, 3]
+    Returns: 
+        T_err_mean: mean translation direction angular error (in radians)
+        T_err: translation direction angular error per sample [B]
+    """
+    assert t.dim() == 2, f't: {t.shape}'
+    assert tgt.dim() == 2, f'tgt: {tgt.shape}'
+    assert t.shape[1] == 3, f't: {t.shape}'
+    assert tgt.shape[1] == 3, f'tgt: {tgt.shape}'
+    
+    t_norm = torch.norm(t, dim=1, keepdim=True)
+    t_normed = t / (t_norm + eps)
+    tgt_norm = torch.norm(tgt, dim=1, keepdim=True)
+    tgt_normed = tgt / (tgt_norm + eps)
+    cosine = torch.sum(t_normed * tgt_normed, dim=1)
+    T_err = torch.acos(torch.clamp(cosine, -1.0 + eps, 1.0 - eps))  # handle numerical errors and NaNs
+    return T_err.mean(), T_err
+
+
+def transl_scale_loss(t, tgt, eps=1e-6, norm_gt=False, norm_esti=False):
+    """
+    Compute translation scale error.
+    Args: 
+        t: estimated translation vector [B, 3]
+        tgt: ground-truth translation vector [B, 3]
+        norm_gt: whether to normalize ground truth vectors before computing loss
+        norm_esti: whether to normalize estimated vectors before computing loss
+        eps: small value to prevent division by zero
+    Returns: 
+        T_err_mean: mean translation scale error
+        T_err: translation scale error per sample [B]
+    """
+    if norm_esti:
+        t_norm = torch.norm(t, dim=1, keepdim=True)
+        t_normed = t / (t_norm + eps)
+    else:
+        t_normed = t
+    if norm_gt:
+        tgt_norm = torch.norm(tgt, dim=1, keepdim=True)
+        tgt_normed = tgt / (tgt_norm + eps)
+    else:
+        tgt_normed = tgt
+    
+    T_err = torch.norm(t_normed - tgt_normed, dim=1)
+    return T_err.mean(), T_err
+
+
+def rot_ang_loss(R, Rgt, eps=1e-6):
+    """
+    Compute rotation angular error.
+    Args:
+        R: estimated rotation matrix [B, 3, 3]
+        Rgt: ground-truth rotation matrix [B, 3, 3]
+    Returns: 
+        R_err_mean: mean rotation angular error (in radians)
+        R_err: rotation angular error per sample [B]
+    """
+    residual = torch.matmul(R.transpose(1, 2), Rgt)
+    trace = torch.diagonal(residual, dim1=-2, dim2=-1).sum(-1)
+    cosine = (trace - 1) / 2
+    R_err = torch.acos(torch.clamp(cosine, -1.0 + eps, 1.0 - eps))  # handle numerical errors and NaNs
+    return R_err.mean(), R_err
+
+
+def compute_pose_error_v2(gt_rel_poses, pred_rel_poses):
+    """
+    Compute pose errors between ground truth and predicted relative poses.
+    Args:
+        gt_rel_poses: (B, 4, 4) Ground truth relative poses
+        pred_rel_poses: (B, 4, 4) Predicted relative poses
+    Returns:
+        err_dict: Dictionary containing translation and rotation errors
+        Metrics include:
+            trans_err_ang_deg: translation direction angular error (degrees)
+            trans_err_scale: translation scale error
+            rot_err_deg: rotation angular error (degrees)
+    """
+    # Extract translation and rotation components
+    t = pred_rel_poses[:, 0:3, -1]  # [B, 3]
+    tgt = gt_rel_poses[:, 0:3, -1]  # [B, 3]
+    R = pred_rel_poses[:, :3, :3]   # [B, 3, 3]
+    Rgt = gt_rel_poses[:, :3, :3]   # [B, 3, 3]
+
+    # Compute translation error with angular version and scale version
+    trans_err_ang, trans_err_ang_raw = transl_ang_loss(t, tgt)
+    trans_err_scale, trans_err_scale_raw = transl_scale_loss(t, tgt, norm_gt=False, norm_esti=False)
+
+    # Compute rotation error
+    rot_err, rot_err_raw = rot_ang_loss(R, Rgt)
+    
+    err_dict = {
+        'trans_err_ang_deg': trans_err_ang * 180 / torch.pi,
+        'trans_err_scale': trans_err_scale,
+        'rot_err_deg': rot_err * 180 / torch.pi
+    }
+    
+    return err_dict
+
+
+def compute_pose_metrics(inputs, outputs, frame_ids):
+    """
+    Compute pose metrics for a validation batch.
+    
+    Args:
+        inputs: Input batch dictionary (should contain ("gt_c2w_poses", frame_id) if GT poses are available)
+        outputs: Output batch dictionary (should contain ("cam_T_cam", 0, frame_id) for predicted poses)
+        frame_ids: List of frame IDs to process (e.g., [0, -1, 1])
+    
+    Returns:
+        Dictionary of pose metrics (empty if GT poses not available)
+    """
+    metrics_dict = {}
+    
+    # Check if GT poses are available
+    if ("gt_c2w_poses", 0) not in inputs:
+        return metrics_dict
+    
+    # Get GT absolute poses for target frame (frame 0)
+    gt_tgt_abs_poses = inputs[("gt_c2w_poses", 0)]  # (B, 4, 4)
+    
+    # Compute metrics for each source frame
+    for frame_id in frame_ids[1:]:
+        if frame_id == "s":
+            continue  # Skip stereo frames
+        
+        # Get GT absolute poses for source frame
+        if ("gt_c2w_poses", frame_id) not in inputs:
+            continue
+        
+        gt_src_abs_poses = inputs[("gt_c2w_poses", frame_id)]  # (B, 4, 4)
+        
+        # Get predicted relative poses
+        if ("cam_T_cam", 0, frame_id) not in outputs:
+            continue
+        
+        pred_rel_poses_batch = outputs[("cam_T_cam", 0, frame_id)]  # (B, 4, 4)
+        
+        # Compute GT relative poses: T_target_to_source = inv(T_source) @ T_target
+        gt_tgt2src_rel_poses = torch.inverse(gt_src_abs_poses) @ gt_tgt_abs_poses
+        
+        assert gt_tgt2src_rel_poses.shape == pred_rel_poses_batch.shape, \
+            f'gt_tgt2src_rel_poses.shape: {gt_tgt2src_rel_poses.shape}, pred_rel_poses_batch.shape: {pred_rel_poses_batch.shape}'
+        
+        # Compute pose errors
+        err_dict = compute_pose_error_v2(gt_tgt2src_rel_poses, pred_rel_poses_batch.detach())
+        
+        # Accumulate metrics (average across frames)
+        for k, v in err_dict.items():
+            key = f"pose_{k}"
+            if key not in metrics_dict:
+                metrics_dict[key] = []
+            metrics_dict[key].append(v.item())
+        
+        # Log scale of estimated translation
+        pred_rel_trans_scale = pred_rel_poses_batch[:, :3, 3].norm(dim=1).mean()
+        if "pose_pred_rel_trans_scale" not in metrics_dict:
+            metrics_dict["pose_pred_rel_trans_scale"] = []
+        metrics_dict["pose_pred_rel_trans_scale"].append(pred_rel_trans_scale.item())
+        
+        # Log scale of depth
+        if ("depth", 0, 0) in outputs:
+            pred_f0_depth_scale = outputs[("depth", 0, 0)].mean()
+            if "pose_pred_f0_depth_scale" not in metrics_dict:
+                metrics_dict["pose_pred_f0_depth_scale"] = []
+            metrics_dict["pose_pred_f0_depth_scale"].append(pred_f0_depth_scale.item())
+    
+    # Average metrics across frames
+    for k in list(metrics_dict.keys()):
+        if len(metrics_dict[k]) > 0:
+            metrics_dict[k] = sum(metrics_dict[k]) / len(metrics_dict[k])
+        else:
+            del metrics_dict[k]
+    
+    return metrics_dict

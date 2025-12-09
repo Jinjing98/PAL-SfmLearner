@@ -6,7 +6,7 @@ import datasets
 import networks
 import torch.optim as optim
 from utils import *
-from utils.metrics import compute_depth_metrics
+from utils.metrics import compute_depth_metrics, compute_pose_metrics
 from loss import SSIM, compute_losses
 import torch
 from torch.utils.data import DataLoader
@@ -243,9 +243,19 @@ class Trainer:
             phase = batch_idx % self.opt.log_frequency == 0
 
             if phase:
+                # Compute metrics (depth and pose) if available
+                metrics = {}
+                if self.opt.compute_metrics:
+                    depth_metrics = compute_depth_metrics(inputs, outputs)
+                    if depth_metrics:
+                        metrics.update(depth_metrics)
+                
+                pose_metrics = compute_pose_metrics(inputs, outputs, self.opt.frame_ids)
+                if pose_metrics:
+                    metrics.update(pose_metrics)
 
                 self.log_time(batch_idx, duration, losses["loss"].cpu().data)
-                self.log("train", inputs, outputs, losses, metrics=None)
+                self.log("train", inputs, outputs, losses, metrics=metrics if metrics else None)
                 self.val()
 
             self.step += 1
@@ -541,12 +551,18 @@ class Trainer:
         with torch.no_grad():
             outputs, losses = self.process_batch(inputs)
             
-            # Compute depth metrics if enabled and GT depth is available
+            # Compute metrics (depth and pose) if available
             metrics = {}
             if self.opt.compute_metrics:
-                metrics = compute_depth_metrics(inputs, outputs)
+                depth_metrics = compute_depth_metrics(inputs, outputs)
+                if depth_metrics:
+                    metrics.update(depth_metrics)
             
-            self.log("val", inputs, outputs, losses, metrics)
+            pose_metrics = compute_pose_metrics(inputs, outputs, self.opt.frame_ids)
+            if pose_metrics:
+                metrics.update(pose_metrics)
+            
+            self.log("val", inputs, outputs, losses, metrics=metrics if metrics else None)
             del inputs, outputs, losses
 
         self.set_train()
