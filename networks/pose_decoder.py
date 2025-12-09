@@ -6,12 +6,13 @@ from collections import OrderedDict
 
 
 class PoseDecoder(nn.Module):
-    def __init__(self, num_ch_enc, num_input_features, num_frames_to_predict_for=None, stride=1, trans_scale_factor=0.001, rot_scale_factor=0.001, rot_representation="angle_axis"):
+    def __init__(self, num_ch_enc, num_input_features, num_frames_to_predict_for=None, stride=1, trans_scale_factor=0.001, rot_scale_factor=0.001, rot_representation="angle_axis", explicit_bias_init_6d9d=True):
         super(PoseDecoder, self).__init__()
 
         self.trans_scale_factor = trans_scale_factor
         self.rot_scale_factor = rot_scale_factor
         self.rot_representation = rot_representation
+        self.explicit_bias_init_6d9d = explicit_bias_init_6d9d
 
         self.num_ch_enc = num_ch_enc
         self.num_input_features = num_input_features
@@ -20,12 +21,7 @@ class PoseDecoder(nn.Module):
             num_frames_to_predict_for = num_input_features - 1
         self.num_frames_to_predict_for = num_frames_to_predict_for
 
-        self.convs = OrderedDict()
-        self.convs[("squeeze")] = nn.Conv2d(self.num_ch_enc[-1], 256, 1)
-        self.convs[("pose", 0)] = nn.Conv2d(num_input_features * 256, 256, 3, stride, 1)
-        self.convs[("pose", 1)] = nn.Conv2d(256, 256, 3, stride, 1)
-
-        # adapt to different rotation representations
+        # adapt to different rotation representations: used for self.convs[("pose", 2)]
         self.trans_vec_dim = 3
         if self.rot_representation == "angle_axis":
             self.rot_vec_dim = 3
@@ -33,11 +29,32 @@ class PoseDecoder(nn.Module):
             self.rot_vec_dim = 9
         elif self.rot_representation == "6D":
             self.rot_vec_dim = 6
+
+        self.convs = OrderedDict()
+        self.convs[("squeeze")] = nn.Conv2d(self.num_ch_enc[-1], 256, 1)
+        self.convs[("pose", 0)] = nn.Conv2d(num_input_features * 256, 256, 3, stride, 1)
+        self.convs[("pose", 1)] = nn.Conv2d(256, 256, 3, stride, 1)
         self.convs[("pose", 2)] = nn.Conv2d(256, (self.trans_vec_dim + self.rot_vec_dim) * num_frames_to_predict_for, 1)
 
         self.relu = nn.ReLU()
 
         self.net = nn.ModuleList(list(self.convs.values()))
+
+        # Apply Special Init on self.convs[("pose", 2)] if 6D/9D and flag is enabled
+        if self.explicit_bias_init_6d9d and self.rot_representation in ["6D", "9D"]:
+            # 2. 偏置初始化：显式构造 Identity Bias
+            if self.rot_representation == "6D":
+                # 旋转 (6 dims, Identity: [1,0,0, 0,1,0])+平移 (3 dims, 全0)
+                # 假设输出顺序是 [r1, r2, r3, r4, r5, r6, tx, ty, tz, ]
+                bias_one_frame = torch.tensor([1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0])
+            elif self.rot_representation == "9D":
+                # 旋转 (9 dims, Identity Flattened)+平移 (3 dims, 全0)
+                bias_one_frame = torch.tensor([1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0])
+            # 如果一次预测 N 帧，bias 需要重复 N 次
+            bias_full = bias_one_frame.repeat(num_frames_to_predict_for)
+            # 4. 赋值 (注意要处理 device 问题，确保 bias 和模型在同一个 device)
+            with torch.no_grad():
+                self.convs[("pose", 2)].bias.copy_(bias_full)
 
     def forward(self, input_features):
         last_features = [f[-1] for f in input_features]
@@ -57,13 +74,25 @@ class PoseDecoder(nn.Module):
             # out = 0.001*out.view(-1, self.num_frames_to_predict_for, 1, 6)
             out = out.view(-1, self.num_frames_to_predict_for, 1, self.trans_vec_dim + self.rot_vec_dim)
 
-            axisangle = self.rot_scale_factor*out[..., :3]
+            axisangle = self.rot_scale_factor*out[..., :3] # B num_f 1 3
             translation = self.trans_scale_factor*out[..., 3:]
             return axisangle, translation
         elif self.rot_representation == "9D":
-            pass
+            out = out.view(-1, self.num_frames_to_predict_for, 1, self.trans_vec_dim + self.rot_vec_dim)
+            rot_9d = out[..., :self.rot_vec_dim]
+            # scale the r2,r3,r4, r6,r7,r8 by rot_scale_factor
+            rot_9d[..., 1:4] *= self.rot_scale_factor
+            rot_9d[..., 5:8] *= self.rot_scale_factor
+            translation = self.trans_scale_factor*out[..., self.rot_vec_dim:]
+            return rot_9d, translation
         elif self.rot_representation == "6D":
-            pass    
+            out = out.view(-1, self.num_frames_to_predict_for, 1, self.trans_vec_dim + self.rot_vec_dim)
+            rot_6d = out[..., :self.rot_vec_dim]
+            # scale the r2,r3,r4,r6 by rot_scale_factor
+            rot_6d[..., 1:4] *= self.rot_scale_factor
+            rot_6d[..., 5] *= self.rot_scale_factor
+            translation = self.trans_scale_factor*out[..., self.rot_vec_dim:]
+            return rot_6d, translation    
 
         
 

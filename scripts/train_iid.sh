@@ -43,7 +43,11 @@ CUDA_VISIBLE_DEVICES=0 python \
 --reproj_supervise_type paba_color_warp \
 --trans_scale_factor 0.001 \
 --rot_scale_factor 0.001 \
-# --of_samples --train_data_file val_files.txt --val_data_file val_files.txt  --of_samples_num 16 --save_frequency 10000 --log_frequency 200 --num_epochs 50000 --log_dir /mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm/iidsfm_dbg \
+--rot_representation angle_axis \
+--rot_representation 6D \
+--rot_representation 9D \
+--explicit_bias_init_6d9d \
+--of_samples --train_data_file val_files.txt --val_data_file val_files.txt  --of_samples_num 16 --save_frequency 10000 --log_frequency 200 --num_epochs 50000 --log_dir /mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm/iidsfm_dbg \
 # --reproj_supervise_type paba_color_warp \
 # --exp_suffix d6_kf2_afsfm_like \
 

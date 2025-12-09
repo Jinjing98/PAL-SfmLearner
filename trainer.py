@@ -78,7 +78,8 @@ class Trainer:
             num_frames_to_predict_for=2,
             trans_scale_factor=self.opt.trans_scale_factor,
             rot_scale_factor=self.opt.rot_scale_factor,
-            rot_representation=self.opt.rot_representation)
+            rot_representation=self.opt.rot_representation,
+            explicit_bias_init_6d9d=self.opt.explicit_bias_init_6d9d)
         self.models["pose"].to(self.device)
         self.parameters_to_train += list(self.models["pose"].parameters())
 
@@ -297,13 +298,24 @@ class Trainer:
 
                     # pose
                     pose_inputs = [self.models["pose_encoder"](torch.cat(inputs_all, 1))]
-                    axisangle, translation = self.models["pose"](pose_inputs)
+                    rot_output, translation = self.models["pose"](pose_inputs)
 
-                    outputs[("axisangle", 0, f_i)] = axisangle
                     outputs[("translation", 0, f_i)] = translation
-                    outputs[("cam_T_cam", 0, f_i)] = transformation_from_parameters(
-                        axisangle[:, 0], translation[:, 0],invert=(f_i < 0))
-         
+
+                    if self.opt.rot_representation == "angle_axis":
+                        outputs[("axisangle", 0, f_i)] = rot_output # B num_f 1 3
+                        outputs[("cam_T_cam", 0, f_i)] = transformation_from_parameters(
+                            rot_output[:, 0], translation[:, 0],invert=(f_i < 0))
+                    elif self.opt.rot_representation == "6D":
+                        outputs[("rot6d", 0, f_i)] = rot_output
+                        outputs[("cam_T_cam", 0, f_i)] = transformation_from_parameters_6D(
+                            rot_output[:, 0], translation[:, 0], invert=(f_i < 0))
+                    elif self.opt.rot_representation == "9D":
+                        outputs[("rot9d", 0, f_i)] = rot_output
+                        outputs[("cam_T_cam", 0, f_i)] = transformation_from_parameters_9D(
+                            rot_output[:, 0], translation[:, 0], invert=(f_i < 0))
+                    else:
+                        assert NotImplementedError(f"Invalid rot_representation: {self.opt.rot_representation}")
         return outputs
     
     def paba_alignment(self, inputs, outputs):

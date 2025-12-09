@@ -8,6 +8,7 @@ import torch.nn.functional as F
 
 def transformation_from_parameters(axisangle, translation, invert=False):
     """Convert the network's (axisangle, translation) output into a 4x4 matrix
+    axisangle: B 1 3
     """
     R = rot_from_axisangle(axisangle)
     t = translation.clone()
@@ -25,7 +26,57 @@ def transformation_from_parameters(axisangle, translation, invert=False):
 
     return M
 
+def transformation_from_parameters_6D(rot_6d, translation, invert=False):
+    """Convert the network's (rot_6d, translation) output into a 4x4 matrix
+    rot_6d: B 1 6
+    translation: B 1 3
+    """
+    # Convert 6D representation to a proper rotation matrix
+    R_3x3 = rot_from_6d(rot_6d).reshape(-1, 3, 3)
+    # Lift to homogeneous coordinates
+    R = torch.eye(4, device=rot_6d.device, dtype=rot_6d.dtype).unsqueeze(0).repeat(R_3x3.shape[0], 1, 1)
+    R[:, :3, :3] = R_3x3
 
+    t = translation.clone()
+
+    if invert:
+        R = R.transpose(1, 2)
+        t *= -1
+
+    T = get_translation_matrix(t)
+
+    if invert:
+        M = torch.matmul(R, T)
+    else:
+        M = torch.matmul(T, R)
+
+    return M
+
+def transformation_from_parameters_9D(rot_9d, translation, invert=False):
+    """Convert the network's (rot_9d, translation) output into a 4x4 matrix
+    rot_9d: B 1 9
+    translation: B 1 3
+    """
+    # Convert 9D representation to a proper rotation matrix
+    R_3x3 = rot_from_9d(rot_9d)
+    # Lift to homogeneous coordinates
+    R = torch.eye(4, device=rot_9d.device, dtype=rot_9d.dtype).unsqueeze(0).repeat(R_3x3.shape[0], 1, 1)
+    R[:, :3, :3] = R_3x3
+
+    t = translation.clone()
+
+    if invert:
+        R = R.transpose(1, 2)
+        t *= -1
+
+    T = get_translation_matrix(t)
+
+    if invert:
+        M = torch.matmul(R, T)
+    else:
+        M = torch.matmul(T, R)
+
+    return M
 def get_translation_matrix(translation_vector):
     """Convert a translation vector into a 4x4 transformation matrix
     """
@@ -82,6 +133,55 @@ def rot_from_axisangle(vec):
     rot[:, 3, 3] = 1
 
     return rot
+
+def rot_from_9d(m):
+    """Convert 9D representation to SO(3) using SVD orthogonalization.
+
+    Args:
+        m: [BATCH, 1, 9] 9D rotation representation.
+
+    Returns:
+        [BATCH, 1, 3, 3] SO(3) rotation matrices.
+    """
+    assert m.dim() == 3
+    assert m.shape[2] == 9 and m.shape[1] == 1
+    m = m.reshape((-1, 3, 3))
+    # if m.dim() < 3:
+        # m = m.reshape((-1, 3, 3))
+    m_transpose = torch.transpose(torch.nn.functional.normalize(m, p=2, dim=-1), dim0=-1, dim1=-2)
+    u, s, v = torch.svd(m_transpose)
+    det = torch.det(torch.matmul(v, u.transpose(-2, -1)))
+    # Check orientation reflection.
+    r = torch.matmul(
+        torch.cat([v[:, :, :-1], v[:, :, -1:] * det.view(-1, 1, 1)], dim=2),
+        u.transpose(-2, -1)
+    )
+    return r
+
+def rot_from_6d(d6):  # code from pytorch3d
+    """
+    Converts 6D rotation representation by Zhou et al. [1] to rotation matrix
+    using Gram--Schmidt orthogonalization per Section B of [1].
+    Args:
+        d6: 6D rotation representation, of size (*, 6)
+
+    Returns:
+        batch of rotation matrices of size (*, 3, 3)
+
+    [1] Zhou, Y., Barnes, C., Lu, J., Yang, J., & Li, H.
+    On the Continuity of Rotation Representations in Neural Networks.
+    IEEE Conference on Computer Vision and Pattern Recognition, 2019.
+    Retrieved from http://arxiv.org/abs/1812.07035
+    """
+    assert  d6.dim() == 3
+    assert d6.shape[2] == 6 and d6.shape[1] == 1
+
+    a1, a2 = d6[..., :3], d6[..., 3:]
+    b1 = F.normalize(a1, dim=-1)
+    b2 = a2 - (b1 * a2).sum(-1, keepdim=True) * b1
+    b2 = F.normalize(b2, dim=-1)
+    b3 = torch.cross(b1, b2, dim=-1)
+    return torch.stack((b1, b2, b3), dim=-2)
 
 
 class BackprojectDepth(nn.Module):
