@@ -7,6 +7,10 @@ import cv2
 import torch
 
 from .mono_dataset import MonoDataset
+from utils import (
+    get_gt_poses,
+    get_poses_for_frames,
+)
 
 DEFAULT_D7K4_SCENE_POINTS_DIR='/mnt/nct-zfs/TCO-All/SharedDatasets/SCARED_Depth/dataset_7/keyframe_4/data/scene_points'
 DATA_PATH='/mnt/cluster/datasets/SCARED/'
@@ -22,6 +26,7 @@ class SCAREDDataset(MonoDataset):
 
         # self.full_res_shape = (1280, 1024)
         self.side_map = {"2": 2, "3": 3, "l": 2, "r": 3}
+        self.dataset_name = 'SCARED'
 
         # Load GT depths from npz file for validation (is_train=False)
         self.gt_depths_val = None
@@ -48,9 +53,20 @@ class SCAREDDataset(MonoDataset):
         return color
 
 
+
 class SCAREDRAWDataset(SCAREDDataset):
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, load_gt_poses=True, **kwargs):
         super(SCAREDRAWDataset, self).__init__(*args, **kwargs)
+        self.load_gt_poses = load_gt_poses
+        self.traj_data_root = DATA_PATH
+        self.trans_scale_gt_traj = 1000  # m to mm
+        if self.load_gt_poses:
+            self.trajs_dict = get_gt_poses(
+                self.filenames,
+                self.traj_data_root,
+                trans_scale=self.trans_scale_gt_traj
+            )
+            print(f"Loaded {len(self.trajs_dict)} trajectories")
 
     def get_image_path(self, folder, frame_index, side):
         f_str = "{:010d}{}".format(frame_index, self.img_ext)
@@ -149,6 +165,21 @@ class SCAREDRAWDataset(SCAREDDataset):
             gt_depth = self.gt_depths_val[index]  # (H_gt, W_gt)
             # Convert to tensor and add channel dimension: (1, H_gt, W_gt)
             inputs[("depth_gt", 0, 0)] = torch.from_numpy(np.expand_dims(gt_depth, 0).astype(np.float32))
+
+        # Load GT poses if enabled
+        if getattr(self, "load_gt_poses", False):
+            line = self.filenames[index].split()
+            assert len(line) == 3, 'Expected 3 elements in line: {}'.format(line)
+            folder = line[0]
+            frame_index = int(line[1])
+            # SCARED trajectories are 0-indexed, images start at 1 => offset -1
+            offset = -1
+            for i in self.frame_idxs:
+                if i == "s":
+                    continue
+                inputs[("gt_c2w_poses", i)] = torch.from_numpy(
+                    get_poses_for_frames(self.trajs_dict, folder, [frame_index + i], offset=offset)
+                )
         
         return inputs
 
@@ -192,16 +223,16 @@ if __name__ == "__main__":
             frame_ids, 4, is_train=False, img_ext='.png'
         )
         print("Dataset created successfully!")
-        print("GT depths loaded: {}".format(val_dataset.gt_depths_val is not None))
+        # print("GT depths loaded: {}".format(val_dataset.gt_depths_val is not None))
         
-        if val_dataset.gt_depths_val is not None:
-            print("GT depths shape: {}".format(val_dataset.gt_depths_val.shape))
-            print("Number of GT depth maps: {}".format(len(val_dataset.gt_depths_val)))
-            print("GT depth dtype: {}".format(val_dataset.gt_depths_val.dtype))
-            print("GT depth min/max: {:.3f} / {:.3f}".format(
-                val_dataset.gt_depths_val.min(), val_dataset.gt_depths_val.max()))
-        else:
-            print("WARNING: GT depths not loaded! Check if gt_depths_val.npz exists.")
+        # if val_dataset.gt_depths_val is not None:
+        #     print("GT depths shape: {}".format(val_dataset.gt_depths_val.shape))
+        #     print("Number of GT depth maps: {}".format(len(val_dataset.gt_depths_val)))
+        #     print("GT depth dtype: {}".format(val_dataset.gt_depths_val.dtype))
+        #     print("GT depth min/max: {:.3f} / {:.3f}".format(
+        #         val_dataset.gt_depths_val.min(), val_dataset.gt_depths_val.max()))
+        # else:
+        #     print("WARNING: GT depths not loaded! Check if gt_depths_val.npz exists.")
         
         # Test loading a sample
         num_samples = len(val_filenames)
@@ -233,6 +264,9 @@ if __name__ == "__main__":
                 print("Error loading sample: {}".format(e))
                 import traceback
                 traceback.print_exc()
+            
+            break
+
         else:
             print("No validation filenames to test!")
             
