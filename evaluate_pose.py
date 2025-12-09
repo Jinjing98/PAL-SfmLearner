@@ -6,8 +6,12 @@ import networks
 import numpy as np
 
 from torch.utils.data import DataLoader
-from layers import transformation_from_parameters
-from utils import readlines
+from utils import (
+    readlines,
+    transformation_from_parameters,
+    transformation_from_parameters_6D,
+    transformation_from_parameters_9D
+)
 from options import MonodepthOptions
 from datasets import SCAREDRAWDataset
 
@@ -105,7 +109,16 @@ def evaluate(opt):
     pose_encoder = networks.ResnetEncoder(opt.num_layers, False, 2)
     pose_encoder.load_state_dict(torch.load(pose_encoder_path))
 
-    pose_decoder = networks.PoseDecoder(pose_encoder.num_ch_enc, 1, 2)
+    # Initialize pose decoder with the same parameters used during training
+    pose_decoder = networks.PoseDecoder(
+        pose_encoder.num_ch_enc,
+        num_input_features=1,
+        num_frames_to_predict_for=2,
+        trans_scale_factor=getattr(opt, 'trans_scale_factor', 0.001),
+        rot_scale_factor=getattr(opt, 'rot_scale_factor', 0.001),
+        rot_representation=getattr(opt, 'rot_representation', 'angle_axis'),
+        explicit_bias_init_6d9d=getattr(opt, 'explicit_bias_init_6d9d', False)
+    )
     pose_decoder.load_state_dict(torch.load(pose_decoder_path))
 
     pose_encoder.cuda()
@@ -127,10 +140,23 @@ def evaluate(opt):
             all_color_aug = torch.cat([inputs[("color", 1, 0)], inputs[("color", 0, 0)]], 1)
 
             features = [pose_encoder(all_color_aug)]
-            axisangle, translation = pose_decoder(features)
+            rot_output, translation = pose_decoder(features)
 
-            pred_poses.append(
-                transformation_from_parameters(axisangle[:, 0], translation[:, 0]).cpu().numpy())
+            # Use appropriate transformation function based on rotation representation
+            rot_representation = getattr(opt, 'rot_representation', 'angle_axis')
+            if rot_representation == "angle_axis":
+                pose_matrix = transformation_from_parameters(
+                    rot_output[:, 0], translation[:, 0])
+            elif rot_representation == "6D":
+                pose_matrix = transformation_from_parameters_6D(
+                    rot_output[:, 0], translation[:, 0])
+            elif rot_representation == "9D":
+                pose_matrix = transformation_from_parameters_9D(
+                    rot_output[:, 0], translation[:, 0])
+            else:
+                raise ValueError(f"Unsupported rotation representation: {rot_representation}")
+
+            pred_poses.append(pose_matrix.cpu().numpy())
 
     pred_poses = np.concatenate(pred_poses)
 

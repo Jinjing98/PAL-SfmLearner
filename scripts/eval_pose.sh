@@ -17,9 +17,15 @@ CUDA_VISIBLE_DEVICES=0 python /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLear
 --dataset endovis \
 --data_path /mnt/nct-zfs/TCO-All/SharedDatasets/SCARED_Images_Resized/ \
 --load_weights_folder /mnt/cluster/workspaces/jinjingxu/proj/MVP3R/baselines/DARES/af_sfmlearner_weights \
+--load_weights_folder /mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm/iidsfm/d6_kf2_IID_baseline_again_1209_1324/models/weights_29 \
+--load_weights_folder /mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm/iidsfm/d6_kf2_PABA_with_adjustNet_6D_1209_1316/models/weights_29 \
 --load_weights_folder /mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm/iidsfm/d6_kf2_PABA_with_adjustNet_6D_gt_rot_learnK_1209_1319/models/weights_29 \
+--load_weights_folder /mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm/iidsfm/d6_kf2_PABA_with_adjustNet_6D_gt_rot_1209_1317/models/weights_29 \
+--load_weights_folder /mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm/iidsfm/d6_kf2_monov2_like_1205_1257/models/weights_29 \
 --test_data_file test_files_sequence2.txt \
 --test_data_file d6_kf2.txt \
+--rot_representation 6D \
+--rot_representation angle_axis \
 
 # --save_poses_root /mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm/eval_pose/ \
 
