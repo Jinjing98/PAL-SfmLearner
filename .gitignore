@@ -2,3 +2,4 @@
 *.png
 splits/
 weights/
+tests/

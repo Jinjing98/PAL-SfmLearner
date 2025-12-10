@@ -56,15 +56,18 @@ class PoseDecoder(nn.Module):
             with torch.no_grad():
                 self.convs[("pose", 2)].bias.copy_(bias_full)
 
-    def forward(self, input_features):
+    def forward(self, input_features, ret_intermediate_feat=False):
         last_features = [f[-1] for f in input_features]
 
         cat_features = [self.relu(self.convs["squeeze"](f)) for f in last_features]
         cat_features = torch.cat(cat_features, 1)
 
         out = cat_features
+        intermediate_feature = None
         for i in range(3):
             out = self.convs[("pose", i)](out)
+            if i == 1 and ret_intermediate_feat:
+                intermediate_feature = out
             if i != 2:
                 out = self.relu(out)
 
@@ -76,7 +79,10 @@ class PoseDecoder(nn.Module):
 
             axisangle = self.rot_scale_factor*out[..., :3] # B num_f 1 3
             translation = self.trans_scale_factor*out[..., 3:]
-            return axisangle, translation
+            if ret_intermediate_feat:
+                return axisangle, translation, intermediate_feature
+            else:
+                return axisangle, translation
         elif self.rot_representation == "9D":
             out = out.view(-1, self.num_frames_to_predict_for, 1, self.trans_vec_dim + self.rot_vec_dim)
             rot_9d = out[..., :self.rot_vec_dim]
@@ -84,7 +90,10 @@ class PoseDecoder(nn.Module):
             rot_9d[..., 1:4] *= self.rot_scale_factor
             rot_9d[..., 5:8] *= self.rot_scale_factor
             translation = self.trans_scale_factor*out[..., self.rot_vec_dim:]
-            return rot_9d, translation
+            if ret_intermediate_feat:
+                return rot_9d, translation, intermediate_feature
+            else:
+                return rot_9d, translation
         elif self.rot_representation == "6D":
             out = out.view(-1, self.num_frames_to_predict_for, 1, self.trans_vec_dim + self.rot_vec_dim)
             rot_6d = out[..., :self.rot_vec_dim]
@@ -92,7 +101,10 @@ class PoseDecoder(nn.Module):
             rot_6d[..., 1:4] *= self.rot_scale_factor
             rot_6d[..., 5] *= self.rot_scale_factor
             translation = self.trans_scale_factor*out[..., self.rot_vec_dim:]
-            return rot_6d, translation    
+            if ret_intermediate_feat:
+                return rot_6d, translation, intermediate_feature
+            else:
+                return rot_6d, translation    
 
         
 

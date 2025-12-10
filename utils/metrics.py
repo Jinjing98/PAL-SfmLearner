@@ -48,7 +48,7 @@ def compute_depth_metrics(inputs, outputs):
     
     # Get GT depth and predicted depth
     gt_depth_tensor = inputs[("depth_gt", 0, 0)]  # (B, 1, H_gt, W_gt) or (B, H_gt, W_gt)
-    pred_depth_tensor = outputs[("depth", 0, 0)]  # (B, 1, H, W)
+    pred_depth_tensor = outputs[("depth", 0, 0)].detach()  # (B, 1, H, W)
     
     # Handle different tensor shapes
     if len(gt_depth_tensor.shape) == 3:
@@ -258,7 +258,7 @@ def compute_pose_metrics(inputs, outputs, frame_ids):
         if ("cam_T_cam", 0, frame_id) not in outputs:
             continue
         
-        pred_rel_poses_batch = outputs[("cam_T_cam", 0, frame_id)]  # (B, 4, 4)
+        pred_rel_poses_batch = outputs[("cam_T_cam", 0, frame_id)].detach()  # (B, 4, 4)
         
         # Compute GT relative poses: T_target_to_source = inv(T_source) @ T_target
         gt_tgt2src_rel_poses = torch.inverse(gt_src_abs_poses) @ gt_tgt_abs_poses

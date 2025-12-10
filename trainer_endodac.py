@@ -3,16 +3,32 @@ from __future__ import absolute_import, division, print_function
 import time
 import json
 import datasets
-import models.encoders as encoders
-import models.decoders as decoders
-import models.endodac as endodac
-import numpy as np
-import torch.optim as optim
+# import models.encoders as encoders
+# import models.decoders as decoders
+# import models.endodac as endodac
+# import EndoDAC.models.encoders as encoders
+# import EndoDAC.models.decoders as decoders
+# import EndoDAC.models.endodac as endodac
 
-from utils.utils import *
-from utils.layers import *
+from EndoDAC.models.endodac import endodac, mark_only_part_as_trainable
+from EndoDAC.models.encoders import ResnetEncoder
+from EndoDAC.models.decoders import PositionDecoder, TransformDecoder, DepthDecoder
+from EndoDAC.models.decoders import IntrinsicsHead, PoseCNN
+from EndoDAC.utils.layers import get_occu_mask_backward, get_occu_mask_bidirection, optical_flow
+from EndoDAC.utils.layers import get_smooth_loss, get_smooth_bright, ncc_loss
+
+from networks.pose_decoder import PoseDecoder
+
+# resue the current one
+from networks.layers import *
+from utils import *
+from utils.metrics import compute_depth_metrics, compute_pose_metrics, compute_depth_errors
+from loss import SSIM
 from torch.utils.data import DataLoader
 from tensorboardX import SummaryWriter
+
+import torch.optim as optim
+import numpy as np
 import os
 import torch
 
@@ -21,7 +37,15 @@ splits_dir = os.path.join(os.path.dirname(__file__), "splits")
 class Trainer:
     def __init__(self, options):
         self.opt = options
-        self.log_path = os.path.join(self.opt.log_dir, self.opt.model_name)
+        # Prepend exp_suffix to model_name if provided
+        model_name_with_suffix = self.opt.model_name
+        if hasattr(self.opt, 'exp_suffix') and self.opt.exp_suffix:
+            model_name_with_suffix = f"{self.opt.exp_suffix}_{self.opt.model_name}"
+        self.log_path = os.path.join(self.opt.log_dir, model_name_with_suffix)
+
+        # Set random seed for reproducibility
+        if hasattr(self.opt, 'seed'):
+            set_seed(self.opt.seed)
 
         # checking height and width are multiples of 32
         assert self.opt.height % 32 == 0, "'height' must be a multiple of 32"
@@ -44,30 +68,33 @@ class Trainer:
         if self.opt.use_stereo:
             self.opt.frame_ids.append("s")
 
-        self.models["depth_model"] = endodac.endodac(
-            backbone_size = "base", r=self.opt.lora_rank, lora_type=self.opt.lora_type,
-            image_shape=(224,280), pretrained_path=self.opt.pretrained_path,
+        self.models["depth_model"] = endodac(
+            backbone_size=getattr(self.opt, 'backbone_size', 'base'), 
+            r=self.opt.lora_rank, 
+            lora_type=self.opt.lora_type,
+            image_shape=(224,280), 
+            pretrained_path=self.opt.pretrained_path,
             residual_block_indexes=self.opt.residual_block_indexes,
             include_cls_token=self.opt.include_cls_token)
         self.models["depth_model"].to(self.device)
         self.parameters_to_train += list(filter(lambda p: p.requires_grad, self.models["depth_model"].parameters()))
 
-        self.models["position_encoder"] = encoders.ResnetEncoder(
+        self.models["position_encoder"] = ResnetEncoder(
             self.opt.num_layers, self.opt.weights_init == "pretrained", num_input_images=2)  # 18
         self.models["position_encoder"].to(self.device)
         self.parameters_to_train_0 += list(self.models["position_encoder"].parameters())
 
-        self.models["position"] = decoders.PositionDecoder(
+        self.models["position"] = PositionDecoder(
             self.models["position_encoder"].num_ch_enc, self.opt.scales)
         self.models["position"].to(self.device)
         self.parameters_to_train_0 += list(self.models["position"].parameters())
 
-        self.models["transform_encoder"] = encoders.ResnetEncoder(
+        self.models["transform_encoder"] = ResnetEncoder(
             self.opt.num_layers, self.opt.weights_init == "pretrained", num_input_images=2)  # 18
         self.models["transform_encoder"].to(self.device)
         self.parameters_to_train += list(self.models["transform_encoder"].parameters())
 
-        self.models["transform"] = decoders.TransformDecoder(
+        self.models["transform"] = TransformDecoder(
             self.models["transform_encoder"].num_ch_enc, self.opt.scales)
         self.models["transform"].to(self.device)
         self.parameters_to_train += list(self.models["transform"].parameters())
@@ -75,31 +102,35 @@ class Trainer:
         if self.use_pose_net:
 
             if self.opt.pose_model_type == "separate_resnet":
-                self.models["pose_encoder"] = encoders.ResnetEncoder(
+                self.models["pose_encoder"] = ResnetEncoder(
                     self.opt.num_layers,
                     self.opt.weights_init == "pretrained",
                     num_input_images=self.num_pose_frames)
                 self.models["pose_encoder"].to(self.device)
                 self.parameters_to_train += list(self.models["pose_encoder"].parameters())
 
-                self.models["pose"] = decoders.PoseDecoder(
+                self.models["pose"] = PoseDecoder(
                     self.models["pose_encoder"].num_ch_enc,
                     num_input_features=1,
-                    num_frames_to_predict_for=2)
+                    num_frames_to_predict_for=2,
+                    trans_scale_factor=getattr(self.opt, 'trans_scale_factor', 0.001),
+                    rot_scale_factor=getattr(self.opt, 'rot_scale_factor', 0.001),
+                    rot_representation=getattr(self.opt, 'rot_representation', 'angle_axis'),
+                    explicit_bias_init_6d9d=getattr(self.opt, 'explicit_bias_init_6d9d', False))
 
             elif self.opt.pose_model_type == "shared":
-                self.models["pose"] = decoders.PoseDecoder(
+                self.models["pose"] = PoseDecoder(
                     self.models["encoder"].num_ch_enc, self.num_pose_frames)
 
             elif self.opt.pose_model_type == "posecnn":
-                self.models["pose"] = decoders.PoseCNN(
+                self.models["pose"] = PoseCNN(
                     self.num_input_frames if self.opt.pose_model_input == "all" else 2)
 
             self.models["pose"].to(self.device)
             self.parameters_to_train += list(self.models["pose"].parameters())
             
             if self.opt.learn_intrinsics:
-                self.models['intrinsics_head'] = decoders.IntrinsicsHead(self.models["pose_encoder"].num_ch_enc)
+                self.models['intrinsics_head'] = IntrinsicsHead(self.models["pose_encoder"].num_ch_enc)
                 self.models['intrinsics_head'].to(self.device)
                 self.parameters_to_train += list(self.models['intrinsics_head'].parameters())
 
@@ -109,7 +140,7 @@ class Trainer:
 
             # Our implementation of the predictive masking baseline has the the same architecture
             # as our depth decoder. We predict a separate mask for each source frame.
-            self.models["predictive_mask"] = decoders.DepthDecoder(
+            self.models["predictive_mask"] = DepthDecoder(
                 self.models["encoder"].num_ch_enc, self.opt.scales,
                 num_output_channels=(len(self.opt.frame_ids) - 1))
             self.models["predictive_mask"].to(self.device)
@@ -133,20 +164,39 @@ class Trainer:
         datasets_dict = {"endovis": datasets.SCAREDRAWDataset}
         self.dataset = datasets_dict[self.opt.dataset]
 
-        fpath = os.path.join(os.path.dirname(__file__), "splits", self.opt.split, "{}_files.txt")
-        train_filenames = readlines(fpath.format("train"))
-        val_filenames = readlines(fpath.format("val"))
-        test_filenames = readlines(fpath.format("test"))
+        splits_dir = os.path.join(os.path.dirname(__file__), "splits", self.opt.split)
+        train_file = getattr(self.opt, 'train_data_file', 'train_files.txt') if not getattr(self.opt, 'of_samples', False) else getattr(self.opt, 'val_data_file', 'val_files.txt')
+        val_file = getattr(self.opt, 'val_data_file', 'val_files.txt')
+        test_file = getattr(self.opt, 'test_data_file', 'test_files.txt')
+        
+        train_fpath = os.path.join(splits_dir, train_file)
+        val_fpath = os.path.join(splits_dir, val_file)
+        test_fpath = os.path.join(splits_dir, test_file)
+        
+        train_filenames = readlines(train_fpath)
+        val_filenames = readlines(val_fpath)
+        test_filenames = readlines(test_fpath)
         img_ext = '.png'  
+
+        if getattr(self.opt, 'of_samples', False):
+            of_samples_num = getattr(self.opt, 'of_samples_num', 100)
+            train_filenames = train_filenames[:of_samples_num]
+            val_filenames = val_filenames[:of_samples_num]
+            test_filenames = test_filenames[:of_samples_num]
+            print("Overfitting mode: using {} Trn samples".format(len(train_filenames)))
+            print("Overfitting mode: using {} Val samples".format(len(val_filenames)))
+            print("Overfitting mode: using {} Test samples".format(len(test_filenames)))
 
         num_train_samples = len(train_filenames)
         self.num_total_steps = num_train_samples // self.opt.batch_size * self.opt.num_epochs
 
+        # is_train = not getattr(self.opt, 'of_samples', False) # can be used for compute depth err
+        shuffle = not getattr(self.opt, 'of_samples', False)  # Fixed order for overfitting
         train_dataset = self.dataset(
             self.opt.data_path, train_filenames, self.opt.height, self.opt.width,
             self.opt.frame_ids, 4, is_train=True, img_ext=img_ext)
         self.train_loader = DataLoader(
-            train_dataset, self.opt.batch_size, True,
+            train_dataset, self.opt.batch_size, shuffle,
             num_workers=self.opt.num_workers, pin_memory=True, drop_last=True)
         val_dataset = self.dataset(
             self.opt.data_path, val_filenames, self.opt.height, self.opt.width,
@@ -156,10 +206,11 @@ class Trainer:
             num_workers=1, pin_memory=True, drop_last=True)
         test_dataset = self.dataset(
             self.opt.data_path, test_filenames, self.opt.height, self.opt.width,
-            self.opt.frame_ids, 4, is_train=False, img_ext=img_ext)
+            self.opt.frame_ids, 4, is_train=False, img_ext=img_ext,
+            load_gt_poses=False)
         self.test_loader = DataLoader(
             test_dataset, 1, False,
-            num_workers=1, pin_memory=True, drop_last=True)
+            num_workers=1, pin_memory=True, drop_last=True,)
         self.val_iter = iter(self.val_loader)
 
         self.writers = {}
@@ -199,8 +250,8 @@ class Trainer:
         self.depth_metric_names = [
             "de/abs_rel", "de/sq_rel", "de/rmse", "de/log_rmse", "da/a1", "da/a2", "da/a3"]
 
-        gt_path = os.path.join(splits_dir, self.opt.eval_split, "gt_depths.npz")
-        self.gt_depths = np.load(gt_path, fix_imports=True, encoding='latin1')["data"]
+        # gt_path = os.path.join(splits_dir, self.opt.eval_split, "gt_depths.npz")
+        # self.gt_depths = np.load(gt_path, fix_imports=True, encoding='latin1')["data"]
         
         print("Using split:\n  ", self.opt.split)
         print("There are {:d} training items, {:d} validation items and {:d} testing items\n".format(
@@ -273,7 +324,7 @@ class Trainer:
             warm_up = True
         else:
             warm_up = False
-        endodac.mark_only_part_as_trainable(self.models["depth_model"], warm_up=warm_up)
+        mark_only_part_as_trainable(self.models["depth_model"], warm_up=warm_up)
         for param in self.models["pose_encoder"].parameters():
             param.requires_grad = True
         for param in self.models["pose"].parameters():
@@ -316,16 +367,21 @@ class Trainer:
         self.start_time = time.time()
         for self.epoch in range(self.opt.num_epochs):
             self.run_epoch()
-            if self.epoch == 0:
-                rmse, a1 = self.run_epoch_eval()
-                self.save_model(mode='epoch')
-            else:
-                rmse_new, a1_new = self.run_epoch_eval()
-                if rmse_new < rmse:
-                    rmse = rmse_new
-                    # a1 = a1_new
-                    self.save_model(mode='epoch')
-            self.save_model(mode='last')
+
+            if (self.epoch + 1) % self.opt.save_frequency == 0:
+                self.save_model(mode='epoch')            
+            
+            # if self.epoch == 0:
+            #     rmse, a1 = self.run_epoch_eval()
+            #     self.save_model(mode='epoch')
+            # else:
+            #     rmse_new, a1_new = self.run_epoch_eval()
+            #     if rmse_new < rmse:
+            #         rmse = rmse_new
+            #         # a1 = a1_new
+            #         self.save_model(mode='epoch')
+            # self.save_model(mode='last')
+            
     def run_epoch(self):
         """Run a single epoch of training and validation
         """
@@ -355,9 +411,20 @@ class Trainer:
             phase = batch_idx % self.opt.log_frequency == 0
 
             if phase:
+                # Compute metrics (depth and pose) if available
+                metrics = {}
+                # log depth metrics during trn
+                if getattr(self.opt, 'compute_metrics', False):
+                    depth_metrics = compute_depth_metrics(inputs, outputs)
+                    if depth_metrics:
+                        metrics.update(depth_metrics)
+                
+                pose_metrics = compute_pose_metrics(inputs, outputs, self.opt.frame_ids)
+                if pose_metrics:
+                    metrics.update(pose_metrics)
 
                 self.log_time(batch_idx, duration, losses["loss"].cpu().data)
-                self.log("train", inputs, outputs, losses)
+                self.log("train", inputs, outputs, losses, metrics=metrics if metrics else None)
                 self.val()
 
             self.step += 1
@@ -394,7 +461,9 @@ class Trainer:
         ratios = []
         
         for i in range(pred_depths.shape[0]):
-            gt_depth = self.gt_depths[i]
+            # gt_depth = self.gt_depths[i]
+            # obtain gt_depth from inputs
+            gt_depth = inputs[("depth_gt", 0, 0)].cpu().detach().numpy().squeeze()
             gt_height, gt_width = gt_depth.shape[:2]
 
             pred_depth = pred_depths[i]
@@ -414,7 +483,8 @@ class Trainer:
             pred_depth[pred_depth < MIN_DEPTH] = MIN_DEPTH
             pred_depth[pred_depth > MAX_DEPTH] = MAX_DEPTH
             
-            errors.append(compute_errors(gt_depth, pred_depth))
+            # errors.append(compute_errors(gt_depth, pred_depth))
+            errors.append(compute_depth_errors(gt_depth, pred_depth))
         if not self.opt.disable_median_scaling:
             ratios = np.array(ratios)
             med = np.median(ratios)
@@ -593,7 +663,7 @@ class Trainer:
 
                     # pose
                     pose_inputs = [self.models["pose_encoder"](torch.cat(inputs_all, 1))]
-                    axisangle, translation, intermediate_feature = self.models["pose"](pose_inputs)
+                    rot_output, translation, intermediate_feature = self.models["pose"](pose_inputs, ret_intermediate_feat=True)
 
                     if self.opt.learn_intrinsics:
                         cam_K = self.models['intrinsics_head'](
@@ -602,10 +672,23 @@ class Trainer:
                         outputs[('K', 0)] = cam_K
                         outputs[('inv_K', 0)] = inv_K
                     
-                    outputs[("axisangle", 0, f_i)] = axisangle
+                    rot_representation = getattr(self.opt, 'rot_representation', 'angle_axis')
+                    if rot_representation == "angle_axis":
+                        outputs[("axisangle", 0, f_i)] = rot_output
+                        outputs[("cam_T_cam", 0, f_i)] = transformation_from_parameters(
+                            rot_output[:, 0], translation[:, 0])
+                    elif rot_representation == "6D":
+                        outputs[("rot6d", 0, f_i)] = rot_output
+                        outputs[("cam_T_cam", 0, f_i)] = transformation_from_parameters_6D(
+                            rot_output[:, 0], translation[:, 0])
+                    elif rot_representation == "9D":
+                        outputs[("rot9d", 0, f_i)] = rot_output
+                        outputs[("cam_T_cam", 0, f_i)] = transformation_from_parameters_9D(
+                            rot_output[:, 0], translation[:, 0])
+                    else:
+                        raise ValueError(f"Unsupported rotation representation: {rot_representation}")
+                    
                     outputs[("translation", 0, f_i)] = translation
-                    outputs[("cam_T_cam", 0, f_i)] = transformation_from_parameters(
-                        axisangle[:, 0], translation[:, 0])
                     
         return outputs
 
@@ -645,15 +728,26 @@ class Trainer:
 
                 # from the authors of https://arxiv.org/abs/1712.00175
                 if self.opt.pose_model_type == "posecnn":
-
-                    axisangle = outputs[("axisangle", 0, frame_id)]
+                    rot_representation = getattr(self.opt, 'rot_representation', 'angle_axis')
                     translation = outputs[("translation", 0, frame_id)]
 
                     inv_depth = 1 / depth
                     mean_inv_depth = inv_depth.mean(3, True).mean(2, True)
 
-                    T = transformation_from_parameters(
-                        axisangle[:, 0], translation[:, 0] * mean_inv_depth[:, 0], frame_id < 0)
+                    if rot_representation == "angle_axis":
+                        axisangle = outputs[("axisangle", 0, frame_id)]
+                        T = transformation_from_parameters(
+                            axisangle[:, 0], translation[:, 0] * mean_inv_depth[:, 0])
+                    elif rot_representation == "6D":
+                        rot6d = outputs[("rot6d", 0, frame_id)]
+                        T = transformation_from_parameters_6D(
+                            rot6d[:, 0], translation[:, 0] * mean_inv_depth[:, 0])
+                    elif rot_representation == "9D":
+                        rot9d = outputs[("rot9d", 0, frame_id)]
+                        T = transformation_from_parameters_9D(
+                            rot9d[:, 0], translation[:, 0] * mean_inv_depth[:, 0])
+                    else:
+                        raise ValueError(f"Unsupported rotation representation: {rot_representation}")
 
                 cam_points = self.backproject_depth[source_scale](
                     depth, inv_K)
@@ -730,16 +824,59 @@ class Trainer:
         """Validate the model on a single minibatch
         """
         self.set_eval()
-        try:
-            inputs = next(self.val_iter)
-        except StopIteration:
-            self.val_iter = iter(self.val_loader)
-            inputs = next(self.val_iter)
+        if getattr(self.opt, 'val_full_eval', False):
+            metrics_accum = {}
+            last_inputs = None
+            last_outputs = None
+            last_losses = None
 
-        with torch.no_grad():
-            outputs, losses = self.process_batch_val(inputs)
-            self.log("val", inputs, outputs, losses)
-            del inputs, outputs, losses
+            def _accum(acc, new_metrics):
+                for k, v in new_metrics.items():
+                    acc.setdefault(k, []).append(float(v))
+
+            with torch.no_grad():
+                for inputs in self.val_loader:
+                    outputs, losses = self.process_batch_val(inputs)
+                    last_inputs, last_outputs, last_losses = inputs, outputs, losses
+
+                    if getattr(self.opt, 'compute_metrics', False):
+                        depth_metrics = compute_depth_metrics(inputs, outputs)
+                        if depth_metrics:
+                            _accum(metrics_accum, depth_metrics)
+
+                    pose_metrics = compute_pose_metrics(inputs, outputs, self.opt.frame_ids)
+                    if pose_metrics:
+                        _accum(metrics_accum, pose_metrics)
+
+            # Average accumulated metrics
+            metrics = {k: sum(v_list) / len(v_list) for k, v_list in metrics_accum.items()} if metrics_accum else None
+
+            if last_inputs is not None:
+                self.log("val", last_inputs, last_outputs, last_losses, metrics=metrics)
+                del last_inputs, last_outputs, last_losses
+        else:
+            try:
+                inputs = next(self.val_iter)
+            except StopIteration:
+                self.val_iter = iter(self.val_loader)
+                inputs = next(self.val_iter)
+
+            with torch.no_grad():
+                outputs, losses = self.process_batch_val(inputs)
+                
+                # Compute metrics (depth and pose) if available
+                metrics = {}
+                if getattr(self.opt, 'compute_metrics', False):
+                    depth_metrics = compute_depth_metrics(inputs, outputs)
+                    if depth_metrics:
+                        metrics.update(depth_metrics)
+                
+                pose_metrics = compute_pose_metrics(inputs, outputs, self.opt.frame_ids)
+                if pose_metrics:
+                    metrics.update(pose_metrics)
+                
+                self.log("val", inputs, outputs, losses, metrics=metrics if metrics else None)
+                del inputs, outputs, losses
 
         self.set_train()
 
@@ -799,12 +936,18 @@ class Trainer:
         print(print_string.format(self.epoch, batch_idx, samples_per_sec, loss,
                                   sec_to_hm_str(time_sofar), sec_to_hm_str(training_time_left)))
 
-    def log(self, mode, inputs, outputs, losses):
+    def log(self, mode, inputs, outputs, losses, metrics=None):
         """Write an event to the tensorboard events file
         """
         writer = self.writers[mode]
         for l, v in losses.items():
             writer.add_scalar("{}".format(l), v, self.step)
+
+        # Log metrics if provided
+        if metrics is not None and len(metrics) > 0:
+            metrics_prefix = "metrics"
+            for m, v in metrics.items():
+                writer.add_scalar("{}/{}".format(metrics_prefix, m), v, self.step)
 
         for j in range(min(4, self.opt.batch_size)):  # write a maxmimum of four images
             for s in self.opt.scales:
