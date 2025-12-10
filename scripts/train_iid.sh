@@ -26,6 +26,7 @@ CUDA_VISIBLE_DEVICES=0 python \
 --reflec_constraint 0.2 \
 --reprojection_constraint 1 \
 --compute_metrics \
+--val_full_eval \
 --train_data_file train_files.txt \
 --val_data_file val_files.txt \
 --test_data_file test_files.txt \
@@ -50,6 +51,12 @@ CUDA_VISIBLE_DEVICES=0 python \
 --exp_suffix d6_kf2_PABA_with_adjustNet_6D_gt_rot \
 --exp_suffix d6_kf2_PABA_with_adjustNet_6D_gt_rot_learnK \
 --exp_suffix d6_kf2_IID_baseline_again \
+# --of_samples --train_data_file d6_kf2_small.txt --val_data_file d6_kf2_small.txt  \
+# --of_samples_num 8 --save_frequency 1 --log_frequency 1 --num_epochs 3 \
+# --batch_size 4 \
+# --val_full_eval \
+# --log_dir /mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm/iidsfm_dbg \
+# --of_samples --train_data_file d6_kf2_small.txt --val_data_file d6_kf2_small.txt  --of_samples_num 16 --save_frequency 10000 --log_frequency 300 --num_epochs 500 --log_dir /mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm/iidsfm_dbg \
 
 # --exp_suffix angleaxis_use_gt_rot \
 # --exp_suffix d6_kf2_PABA_with_adjustNet_gt_rot \

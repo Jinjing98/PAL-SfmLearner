@@ -98,7 +98,8 @@ def create_dataloader_for_gt_loading(opt, splits_dir, encoder_dict=None):
     
     dataset_gt = datasets.SCAREDRAWDataset(opt.data_path, filenames,
                                           height, width,
-                                          [0], 4, is_train=False)
+                                          [0], 4, is_train=False,
+                                          load_gt_poses=False)
     dataloader_gt = DataLoader(dataset_gt, 16, shuffle=False, num_workers=opt.num_workers,
                               pin_memory=True, drop_last=False)
     
@@ -134,7 +135,8 @@ def evaluate(opt):
         if opt.eval_split == "endovis":
             dataset = datasets.SCAREDRAWDataset(opt.data_path, filenames,
                                             encoder_dict['height'], encoder_dict['width'],
-                                            [0], 4, is_train=False)
+                                            [0], 4, is_train=False,
+                                            load_gt_poses=False)
             dataloader = DataLoader(dataset, 16, shuffle=False, num_workers=opt.num_workers,
                                     pin_memory=True, drop_last=False)
 

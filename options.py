@@ -168,6 +168,9 @@ class MonodepthOptions:
         self.parser.add_argument("--compute_metrics",
                                  help="if set computes depth metrics during validation",
                                  action="store_true")
+        self.parser.add_argument("--val_full_eval",
+                                 help="if set, run validation on the full val set instead of a single batch",
+                                 action="store_true")
 
         # LOADING options
         self.parser.add_argument("--load_weights_folder",

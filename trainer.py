@@ -636,28 +636,64 @@ class Trainer:
         """Validate the model on a single minibatch
         """
         self.set_eval()
-        try:
-            inputs = next(self.val_iter)
-        except StopIteration:
-            self.val_iter = iter(self.val_loader)
-            inputs = next(self.val_iter)
+        if self.opt.val_full_eval:
+            metrics_accum = {}
+            last_inputs = None
+            last_outputs = None
+            last_losses = None
 
-        with torch.no_grad():
-            outputs, losses = self.process_batch(inputs)
-            
-            # Compute metrics (depth and pose) if available
-            metrics = {}
-            if self.opt.compute_metrics:
-                depth_metrics = compute_depth_metrics(inputs, outputs)
-                if depth_metrics:
-                    metrics.update(depth_metrics)
-            
-            pose_metrics = compute_pose_metrics(inputs, outputs, self.opt.frame_ids)
-            if pose_metrics:
-                metrics.update(pose_metrics)
-            
-            self.log("val", inputs, outputs, losses, metrics=metrics if metrics else None)
-            del inputs, outputs, losses
+            def _accum(acc, new_metrics):
+                for k, v in new_metrics.items():
+                    acc.setdefault(k, []).append(float(v))
+
+            with torch.no_grad():
+                for inputs in self.val_loader:
+                    outputs, losses = self.process_batch(inputs)
+                    last_inputs, last_outputs, last_losses = inputs, outputs, losses
+
+                    if self.opt.compute_metrics:
+                        depth_metrics = compute_depth_metrics(inputs, outputs)
+                        if depth_metrics:
+                            _accum(metrics_accum, depth_metrics)
+
+                    pose_metrics = compute_pose_metrics(inputs, outputs, self.opt.frame_ids)
+                    if pose_metrics:
+                        _accum(metrics_accum, pose_metrics)
+
+            # Average accumulated metrics
+            # print metrics_accume for tracing
+            print('metrics_accum:')
+            for k, v_list in metrics_accum.items():
+                print(f'{k}: {v_list}')
+
+            metrics = {k: sum(v_list) / len(v_list) for k, v_list in metrics_accum.items()} if metrics_accum else None
+
+            if last_inputs is not None:
+                self.log("val", last_inputs, last_outputs, last_losses, metrics=metrics)
+                del last_inputs, last_outputs, last_losses
+        else:
+            try:
+                inputs = next(self.val_iter)
+            except StopIteration:
+                self.val_iter = iter(self.val_loader)
+                inputs = next(self.val_iter)
+
+            with torch.no_grad():
+                outputs, losses = self.process_batch(inputs)
+                
+                # Compute metrics (depth and pose) if available
+                metrics = {}
+                if self.opt.compute_metrics:
+                    depth_metrics = compute_depth_metrics(inputs, outputs)
+                    if depth_metrics:
+                        metrics.update(depth_metrics)
+                
+                pose_metrics = compute_pose_metrics(inputs, outputs, self.opt.frame_ids)
+                if pose_metrics:
+                    metrics.update(pose_metrics)
+                
+                self.log("val", inputs, outputs, losses, metrics=metrics if metrics else None)
+                del inputs, outputs, losses
 
         self.set_train()
 
