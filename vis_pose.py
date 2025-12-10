@@ -61,6 +61,7 @@ def dump(source_to_target_transformations):
 def compute_scale(gtruth, pred):
     """Compute optimal scaling factor between ground truth and prediction"""
     scale = np.sum(gtruth[:, :3, 3] * pred[:, :3, 3]) / np.sum(pred[:, :3, 3] ** 2)
+    # scale = 220
     print(f'Scale factor: {scale}')
     return scale
 

@@ -23,10 +23,17 @@ CUDA_VISIBLE_DEVICES=0 python /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLear
 --load_weights_folder /mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm/iidsfm/d6_kf2_PABA_with_adjustNet_6D_gt_rot_1209_1317/models/weights_29 \
 --load_weights_folder /mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm/iidsfm/d6_kf2_monov2_like_1205_1257/models/weights_29 \
 --load_weights_folder /mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm/iidsfm/d6_kf2_IID_baseline_again_1210_1146/models/weights_12 \
---test_data_file test_files_sequence2.txt \
+--load_weights_folder /mnt/cluster/workspaces/jinjingxu/proj/UniSfMLearner/submodule/Endo_FASt3r/dares_weights/best_weights \
+--load_weights_folder /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/weights/af_pretrained/Model_MIA \
+--load_weights_folder /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/weights/af_pretrained/Model_trained_end_to_end \
 --test_data_file d6_kf2.txt \
+--test_data_file test_files_sequence2.txt \
+--test_data_file test_files_sequence1.txt \
 --rot_representation 6D \
+--load_gt_from_npz \
 --rot_representation angle_axis \
+
+# --load_gt_from_npz \
 
 # --save_poses_root /mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm/eval_pose/ \
 

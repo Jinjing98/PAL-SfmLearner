@@ -235,7 +235,8 @@ def evaluate(opt):
     print(f"-> Saved {len(pred_poses)} pose predictions to {pred_poses_path}")
 
     assert os.path.exists(os.path.join(os.path.dirname(__file__), "splits", opt.dataset))
-    if opt.test_data_file in ["test_files_sequence2.txt", "test_files_sequence1.txt"]:
+    # if opt.test_data_file in ["test_files_sequence2.txt", "test_files_sequence1.txt"]:
+    if opt.load_gt_from_npz:
         gt_path = os.path.join(os.path.dirname(__file__), "splits", opt.dataset, "gt_poses_sq{}.npz".format(opt.test_data_file.split('.')[0][-1]))
         assert os.path.exists(gt_path), f"GT path {gt_path} does not exist"
     else:
