@@ -72,6 +72,64 @@ def compute_re(gtruth_r, pred_r):
 
     return RE / gtruth_r.shape[0]
 
+
+def compute_rpe_translation(gt_poses, pred_poses):
+    """Compute Relative Pose Error for translation"""
+    rpe_trans = []
+    
+    for i in range(len(gt_poses) - 1):
+        # Ground truth relative pose
+        gt_rel = np.linalg.inv(gt_poses[i]) @ gt_poses[i + 1]
+        gt_trans = gt_rel[:3, 3]
+        
+        # Predicted relative pose
+        pred_rel = np.linalg.inv(pred_poses[i]) @ pred_poses[i + 1]
+        pred_trans = pred_rel[:3, 3]
+        
+        # Translation error
+        trans_error = np.linalg.norm(gt_trans - pred_trans)
+        rpe_trans.append(trans_error)
+    
+    return np.array(rpe_trans)
+
+
+def construct_poses(positions, rotations):
+    """Construct pose matrices from positions and rotations"""
+    poses = []
+    for pos, rot in zip(positions, rotations):
+        pose = np.eye(4)
+        pose[:3, 3] = pos
+        pose[:3, :3] = rot
+        poses.append(pose)
+    return np.array(poses)
+
+
+def compute_rpe_rotation(gt_poses, pred_poses):
+    """Compute Relative Pose Error for rotation"""
+    rpe_rot = []
+    assert len(gt_poses) == len(pred_poses), "gt_poses and pred_poses must have the same length"
+    assert len(gt_poses) > 1, "gt_poses and pred_poses must have at least 2 frames"
+    
+    for i in range(len(gt_poses) - 1):
+        # Ground truth relative pose
+        gt_rel = np.linalg.inv(gt_poses[i]) @ gt_poses[i + 1]
+        gt_rot = gt_rel[:3, :3]
+        
+        # Predicted relative pose
+        pred_rel = np.linalg.inv(pred_poses[i]) @ pred_poses[i + 1]
+        pred_rot = pred_rel[:3, :3]
+        
+        # Rotation error (angle between rotation matrices)
+        R = gt_rot @ np.linalg.inv(pred_rot)
+        s = np.linalg.norm([R[0, 1] - R[1, 0],
+                            R[1, 2] - R[2, 1],
+                            R[0, 2] - R[2, 0]])
+        c = np.trace(R) - 1
+        angle = np.arctan2(s, c)
+        rpe_rot.append(angle)
+
+    return np.array(rpe_rot)
+
 def online_gen_gt_poses(opt, dataloader, gt_path):
     print(f"Computing gt poses for {opt.test_data_file}...")
     gt_local_poses = []
@@ -189,21 +247,89 @@ def evaluate(opt):
     gt_local_poses = np.load(gt_path, fix_imports=True, encoding='latin1')["data"]
     print(f"Loaded {len(gt_local_poses)} rel gt poses")
 
-    ates = []
-    res = []
-    num_frames = gt_local_poses.shape[0]
-    track_length = 5
-    for i in range(0, num_frames - 1):
-        local_xyzs = np.array(dump_xyz(pred_poses[i:i + track_length - 1]))
-        gt_local_xyzs = np.array(dump_xyz(gt_local_poses[i:i + track_length - 1]))
-        local_rs = np.array(dump_r(pred_poses[i:i + track_length - 1]))
-        gt_rs = np.array(dump_r(gt_local_poses[i:i + track_length - 1]))
+    # Compute evaluation metrics
+    print("\n-> Computing evaluation metrics...")
+    
+    def compute_metrics(gt_local_poses, pred_poses, track_length):
+        ates = []
+        res = []
+        rpes_trans = []
+        rpes_rot = []
+        num_frames = gt_local_poses.shape[0]
+        
+        assert len(gt_local_poses) == len(pred_poses), f'len(gt_local_poses): {len(gt_local_poses)}, len(pred_poses): {len(pred_poses)}'
 
-        ates.append(compute_ate(gt_local_xyzs, local_xyzs))
-        res.append(compute_re(local_rs, gt_rs))
+        for i in range(0, num_frames - 1):
+            end_id = i + (track_length - 1)
 
-    print("\n   Trajectory error: {:0.4f}, std: {:0.4f}\n".format(np.mean(ates), np.std(ates)))
-    print("\n   Rotation error: {:0.4f}, std: {:0.4f}\n".format(np.mean(res), np.std(res)))
+            # Optional fix for short track length
+            # Guarantee reasonable metrics with other variant track_length
+            # Keep consistent stats when track_length is 5, while support reasonable stats when track_length is traj_len+1
+            if end_id > len(pred_poses) and track_length != 5:
+                break
+            
+            pred_abs_xyzs = np.array(dump_xyz(pred_poses[i:i + track_length - 1]))
+            gt_abs_xyzs = np.array(dump_xyz(gt_local_poses[i:i + track_length - 1]))
+            esti_abs_rs = np.array(dump_r(pred_poses[i:i + track_length - 1]))
+            gt_abs_rs = np.array(dump_r(gt_local_poses[i:i + track_length - 1]))
+
+            ates.append(compute_ate(gt_abs_xyzs, pred_abs_xyzs))
+            res.append(compute_re(gt_abs_rs, esti_abs_rs))
+
+            # RPE metrics
+            # Construct gt_abs_poses from gt_abs_xyzs and gt_abs_rs
+            if end_id > len(pred_poses):
+                continue
+
+            gt_abs_poses = construct_poses(gt_abs_xyzs, gt_abs_rs)
+            esti_abs_poses = construct_poses(pred_abs_xyzs, esti_abs_rs)
+            esti_snipt_scale = np.sum(gt_abs_poses[:, :3, 3] * esti_abs_poses[:, :3, 3]) / np.sum(esti_abs_poses[:, :3, 3] ** 2)
+            esti_abs_poses_scale = esti_abs_poses.copy()
+            esti_abs_poses_scale[:, :3, 3] = esti_abs_poses_scale[:, :3, 3] * esti_snipt_scale
+
+            rpes_trans.append(compute_rpe_translation(gt_abs_poses, esti_abs_poses_scale))
+            rpes_rot.append(compute_rpe_rotation(gt_abs_poses, esti_abs_poses))
+        
+        # Print results
+        print("\n" + "="*60)
+        print("EVALUATION RESULTS GIVEN TRACK LENGTH = {}".format(track_length))
+        print('NUM OF SNIPPETS IN COMPUTATION: {}'.format(len(ates)))
+        print("="*60)
+        
+        float_digits = 4
+        print(f"Absolute Trajectory Error (ATE):")
+        print(f"   Mean: {np.mean(ates):.{float_digits}f}, Std: {np.std(ates):.{float_digits}f}")
+        print(f"Rotation Error (RE):")
+        print(f"   Mean: {np.mean(res):.{float_digits}f}, Std: {np.std(res):.{float_digits}f}")
+
+        if len(rpes_trans) > 0:
+            print(f"Relative Pose Error - Translation (RPE-T):")
+            print(f"   Mean: {np.mean(rpes_trans):.{float_digits}f}, Std: {np.std(rpes_trans):.{float_digits}f}")
+            # print(f"Relative Pose Error - Rotation (RPE-R (radian)):")
+            # print(f"   Mean: {np.mean(rpes_rot):.{float_digits}f}, Std: {np.std(rpes_rot):.{float_digits}f}")
+            print(f"Relative Pose Error - Rotation (RPE-R (deg)):")
+            print(f"   Mean: {np.mean(rpes_rot) * 180 / np.pi:.{float_digits}f}, Std: {np.std(rpes_rot) * 180 / np.pi:.{float_digits}f}")
+
+            # Latex print format
+            print(f"Method & {np.mean(ates):.{float_digits}f}$\pm{np.std(ates):.{float_digits}f}$ & {np.mean(res):.{float_digits}f}$\pm{np.std(res):.{float_digits}f}$ & {np.mean(rpes_trans):.{float_digits}f}$\pm{np.std(rpes_trans):.{float_digits}f}$ & {np.mean(rpes_rot):.{float_digits}f}$\pm{np.std(rpes_rot):.{float_digits}f}$ \\\\")
+        else:
+            # Latex print format (without RPE if not computed)
+            print(f"Method & {np.mean(ates):.{float_digits}f}$\pm{np.std(ates):.{float_digits}f}$ & {np.mean(res):.{float_digits}f}$\pm{np.std(res):.{float_digits}f}$ \\\\")
+
+        print("="*60)
+
+        return ates, res, rpes_trans, rpes_rot
+
+    # Support multiple track lengths
+    track_lengths = getattr(opt, 'track_lengths', [5])  # Default to [5] if not specified
+    if track_lengths is None:
+        track_lengths = [5]
+    if isinstance(track_lengths, int):
+        track_lengths = [track_lengths]  # Convert single int to list
+    
+    metrics_dict = {}
+    for track_length in track_lengths:
+        metrics_dict[track_length] = compute_metrics(gt_local_poses, pred_poses, track_length=track_length)
 
 
 if __name__ == "__main__":

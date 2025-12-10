@@ -252,6 +252,11 @@ class MonodepthOptions:
                                  help="root directory to save pose predictions",
                                  type=str,
                                  default=None)
+        self.parser.add_argument("--track_lengths",
+                                 help="track lengths for pose evaluation (can specify multiple, e.g., --track_lengths 5 10)",
+                                 nargs="+",
+                                 type=int,
+                                 default=[5])
         
         # visualise pose traj func
         self.parser.add_argument("--eval_model_appendix",
