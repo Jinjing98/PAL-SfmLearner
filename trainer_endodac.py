@@ -3,32 +3,33 @@ from __future__ import absolute_import, division, print_function
 import time
 import json
 import datasets
-# import models.encoders as encoders
-# import models.decoders as decoders
-# import models.endodac as endodac
-# import EndoDAC.models.encoders as encoders
-# import EndoDAC.models.decoders as decoders
-# import EndoDAC.models.endodac as endodac
+ 
 
-from EndoDAC.models.endodac import endodac, mark_only_part_as_trainable
-from EndoDAC.models.encoders import ResnetEncoder
-from EndoDAC.models.decoders import PositionDecoder, TransformDecoder, DepthDecoder
-from EndoDAC.models.decoders import IntrinsicsHead, PoseCNN
-from EndoDAC.utils.layers import get_occu_mask_backward, get_occu_mask_bidirection, optical_flow
-from EndoDAC.utils.layers import get_smooth_loss, get_smooth_bright, ncc_loss
+from third_party.EndoDAC.models.endodac import endodac, mark_only_part_as_trainable
+from third_party.EndoDAC.models.encoders import ResnetEncoder
+from third_party.EndoDAC.models.decoders import PositionDecoder, TransformDecoder, DepthDecoder
+from third_party.EndoDAC.models.decoders import IntrinsicsHead, PoseCNN
 
-from networks.pose_decoder import PoseDecoder
-
-# resue the current one
-from networks.layers import *
-from utils import *
+from utils.utils_optic_flow import get_occu_mask_backward, get_occu_mask_bidirection, optical_flow
 from utils.metrics import compute_depth_metrics, compute_pose_metrics, compute_depth_errors
-from loss import SSIM
+from utils.util import set_seed, readlines, normalize_image, sec_to_hm_str, disp_to_depth
+from utils.warping import (
+    transformation_from_parameters,
+    transformation_from_parameters_6D,
+    transformation_from_parameters_9D,
+    BackprojectDepth,
+    Project3D,
+    SpatialTransformer
+)
+from loss import get_smooth_loss, get_smooth_bright, ncc_loss, SSIM
+from networks.pose_decoder import PoseDecoder
 from torch.utils.data import DataLoader
 from tensorboardX import SummaryWriter
 
 import torch.optim as optim
+import torch.nn.functional as F
 import numpy as np
+import cv2
 import os
 import torch
 

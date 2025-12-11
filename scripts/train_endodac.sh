@@ -12,17 +12,7 @@
 #SBATCH --error=/mnt/nct-zfs/TCO-Test/jinjingxu/slurm_out/%j.err
 #SBATCH --output=/mnt/nct-zfs/TCO-Test/jinjingxu/slurm_out/%j.out
 
-
-# cd /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner
-# CUDA_VISIBLE_DEVICES=0 python \
-# /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/train_endodac.py \
-# --num_workers 2 \
-# --num_epochs 30 \
-# --batch_size 8 \
-# --log_frequency 200 \
-# --log_dir /mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm/iidsfm \
-# --data_path /mnt/nct-zfs/TCO-All/SharedDatasets/SCARED_Images_Resized/ \
-# --log_dir /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/tests/endodac \
+ 
 
 
 CUDA_VISIBLE_DEVICES=0 python \
@@ -51,14 +41,15 @@ CUDA_VISIBLE_DEVICES=0 python \
 --log_dir /mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm/endodac \
 --exp_suffix full_endodacB_6D_baseline \
 --exp_suffix full_endodacB_angleaxis_baseline \
-# --of_samples \
-# --of_samples_num 16 \
-# --train_data_file d6_kf2.txt \
-# --val_data_file d6_kf2.txt \
-# --save_frequency 1000 \
-# --log_frequency 1 \
-# --num_epochs 20 \
-# --log_dir /mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm/endodac_dbg \
+--of_samples \
+--of_samples_num 16 \
+--train_data_file d6_kf2.txt \
+--val_data_file d6_kf2.txt \
+--save_frequency 1000 \
+--log_frequency 1 \
+--num_epochs 20 \
+--batch_size 2 \
+--log_dir /mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm/endodac_dbg \
 
 
 # --reproj_supervise_type color_warp \

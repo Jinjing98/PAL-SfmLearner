@@ -1,5 +1,7 @@
 from __future__ import absolute_import, division, print_function
 
+import math
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -39,6 +41,90 @@ def get_smooth_light(light, img):
     y_loss = torch.abs(torch.div(grad_light_y, Denominator_y))
     
     return x_loss.mean() + y_loss.mean()
+
+
+def get_smooth_bright(transform, target, pred, occu_mask):
+    
+    """Computes the smoothness loss for a appearance flow
+    """
+    grad_transform_x = torch.mean(torch.abs(transform[:, :, :, :-1] - transform[:, :, :, 1:]), 1, keepdim=True)
+    grad_transform_y = torch.mean(torch.abs(transform[:, :, :-1, :] - transform[:, :, 1:, :]), 1, keepdim=True)
+     
+    residue = (target - pred)
+    
+    grad_residue_x = torch.mean(torch.abs(residue[:, :, :, :-1] - residue[:, :, :, 1:]), 1, keepdim=True)
+    grad_residue_y = torch.mean(torch.abs(residue[:, :, :-1, :] - residue[:, :, 1:, :]), 1, keepdim=True)
+
+    mask_x = occu_mask[:, :, :, :-1]
+    mask_y = occu_mask[:, :, :-1, :]
+
+    # grad_residue_x = grad_residue_x * mask_x / (mask_x.mean() + 1e-7)
+    # grad_residue_y = grad_residue_y * mask_y / (mask_y.mean() + 1e-7)
+    
+    grad_transform_x *= torch.exp(-grad_residue_x)
+    grad_transform_y *= torch.exp(-grad_residue_y)
+
+    grad_transform_x *= mask_x
+    grad_transform_y *= mask_y
+    
+    return (grad_transform_x.sum() / mask_x.sum() + grad_transform_y.sum() / mask_y.sum())
+
+
+def compute_local_sums(I, J, filt, stride, padding, win):
+
+    I2 = I * I
+    J2 = J * J
+    IJ = I * J
+
+    I_sum = F.conv2d(I, filt, stride=stride, padding=padding)
+    J_sum = F.conv2d(J, filt, stride=stride, padding=padding)
+    I2_sum = F.conv2d(I2, filt, stride=stride, padding=padding)
+    J2_sum = F.conv2d(J2, filt, stride=stride, padding=padding)
+    IJ_sum = F.conv2d(IJ, filt, stride=stride, padding=padding)
+
+    win_size = np.prod(win)
+    u_I = I_sum / win_size
+    u_J = J_sum / win_size
+
+    cross = IJ_sum - u_J * I_sum - u_I * J_sum + u_I * u_J * win_size
+    I_var = I2_sum - 2 * u_I * I_sum + u_I * u_I * win_size
+    J_var = J2_sum - 2 * u_J * J_sum + u_J * u_J * win_size
+
+    return I_var, J_var, cross
+
+
+def ncc_loss(I, J, win=None):
+    """
+    calculate the normalize local cross correlation between I and J
+    assumes I, J are sized [batch_size, *vol_shape, nb_feats]
+    """
+
+    ndims = len(list(I.size())) - 2
+    assert ndims in [1, 2, 3], "volumes should be 1 to 3 dimensions. found: %d" % ndims
+
+    if win is None:
+        win = [5] * ndims
+
+    sum_filt = torch.ones([1, 1, *win]).to("cuda")
+
+    pad_no = math.floor(win[0] / 2)
+
+    if ndims == 1:
+        stride = (1)
+        padding = (pad_no)
+    elif ndims == 2:
+        stride = (1, 1)
+        padding = (pad_no, pad_no)
+    else:
+        stride = (1, 1, 1)
+        padding = (pad_no, pad_no, pad_no)
+
+    I_var, J_var, cross = compute_local_sums(I, J, sum_filt, stride, padding, win)
+
+    cc = cross * cross / (I_var * J_var + 1e-5)
+
+    # return -1 * torch.mean(cc)
+    return -1 * cc
 
 
 class SSIM(nn.Module):
