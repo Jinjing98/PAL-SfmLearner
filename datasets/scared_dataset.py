@@ -109,42 +109,21 @@ class SCAREDRAWDataset(SCAREDDataset):
         ]
         f_str = "scene_points{:06d}.tiff".format(frame_index - 1)
         depth_path = None
-        # Special override for dataset7/keyframe4
-        if dataset_num == 7 and keyframe_num == 4:
-            override_candidate = os.path.join(DEFAULT_D7K4_SCENE_POINTS_DIR, f_str)
-            if os.path.exists(override_candidate):
-                depth_path = override_candidate
 
-        # Default search under main data_path if not found via override
-        if not (dataset_num == 7 and keyframe_num == 4) and depth_path is None:
-            for subset in ["training", "testing"]:
-                for ddir in dataset_dir_candidates:
-                    for kdir in keyframe_dir_candidates:
-                        candidate = os.path.join(
-                            DATA_PATH,
-                            subset,
-                            ddir,
-                            kdir,
-                            "data",
-                            "scene_points",
-                            f_str
-                        )
-                        if os.path.exists(candidate):
-                            depth_path = candidate
-                            break
-                    if depth_path is not None:
-                        break
-                if depth_path is not None:
-                    break
+        from utils import map_traj_search
+        traj_folder = map_traj_search(folder, DATA_PATH)
+        depth_path = os.path.join(traj_folder, 'data', 'scene_points', f_str)
+        # print(f"Depth path sanity: {depth_path} for folder: {folder} frame: {frame_index}")
+        if not os.path.exists(depth_path):
+            print(f"Depth file {depth_path} does not exist. d7k4?")
+            depth_path = os.path.join(DEFAULT_D7K4_SCENE_POINTS_DIR, f_str)
+            assert os.path.exists(depth_path), f"Depth file {depth_path} does not exist."
 
-        if depth_path is None:
-            print("Warning: missing depth for {} frame {} (line {}).".format(folder, frame_index))
-            assert False, 'depth_path is None for folder: {} frame: {}'.format(folder, frame_index)
-        assert os.path.exists(depth_path), f"Depth file {depth_path} does not exist."
         depth_gt = cv2.imread(depth_path, 3)
         if depth_gt is None:
             print('Depth file is broken/None in path {} for folder: {} frame: {}'.format(depth_path, folder, frame_index))
             print('We set broken depth to zeros...')
+            # assert False, 'Depth file is broken/None in path {} for folder: {} frame: {}'.format(depth_path, folder, frame_index)
             return np.zeros((1024, 1280))
             # return None
         
@@ -201,9 +180,9 @@ if __name__ == "__main__":
     # Read validation filenames
     splits_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "splits")
     val_fpath = os.path.join(splits_dir, split, "val_files.txt")
+    val_fpath = os.path.join(splits_dir, split, "d6_kf2.txt")
     val_fpath = os.path.join(splits_dir, split, "test_files.txt")
     val_fpath = os.path.join(splits_dir, split, "train_files.txt")
-    val_fpath = os.path.join(splits_dir, split, "d6_kf2.txt")
     
     if not os.path.exists(val_fpath):
         print("Error: Validation split file not found at {}".format(val_fpath))
@@ -220,7 +199,8 @@ if __name__ == "__main__":
     try:
         val_dataset = SCAREDRAWDataset(
             data_path, val_filenames, height, width,
-            frame_ids, 4, is_train=False, img_ext='.png'
+            frame_ids, 4, is_train=False, img_ext='.png',
+            load_gt_poses=False
         )
         print("Dataset created successfully!")
         # print("GT depths loaded: {}".format(val_dataset.gt_depths_val is not None))
@@ -265,7 +245,8 @@ if __name__ == "__main__":
                 import traceback
                 traceback.print_exc()
             
-            break
+            # whether loop over all samples
+            # break
 
         else:
             print("No validation filenames to test!")
