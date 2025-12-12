@@ -37,6 +37,9 @@ CUDA_VISIBLE_DEVICES=0 python \
 --rot_representation 6D \
 --rot_representation angle_axis \
 --rot_representation 9D \
+--rot_representation euler \
+--explicit_bias_init_6d9d \
+--rot_representation quat \
 --backbone_size base \
 --log_dir /mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm/endodac \
 --pretrained_path /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/weights/depthanything \
@@ -46,6 +49,9 @@ CUDA_VISIBLE_DEVICES=0 python \
 --exp_suffix full_endodacB_angleaxis_baseline_defaultPredictK \
 --exp_suffix full_endodacB_angleaxis_optmizedK \
 --exp_suffix full_endodacB_9D_defInit_naiveMul_baseline \
+--exp_suffix full_endodacB_euler_baseline \
+--exp_suffix full_endodacB_quat_baseline \
+--exp_suffix full_endodacB_quat_regressXYZ_baseline \
 # --learn_intrinsics True \
 # --of_samples \
 # --of_samples_num 16 \
@@ -57,7 +63,6 @@ CUDA_VISIBLE_DEVICES=0 python \
 # --batch_size 2 \
 # --log_dir /mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm/endodac_dbg \
 
-# --explicit_bias_init_6d9d \
 
 
 # --reproj_supervise_type color_warp \

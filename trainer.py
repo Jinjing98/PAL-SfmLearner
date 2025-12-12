@@ -389,6 +389,14 @@ class Trainer:
                         outputs[("rot9d", 0, f_i)] = rot_output
                         outputs[("cam_T_cam", 0, f_i)] = transformation_from_parameters_9D(
                             rot_output[:, 0], translation[:, 0], invert=(f_i < 0))
+                    elif self.opt.rot_representation == "quat":
+                        outputs[("quat", 0, f_i)] = rot_output
+                        outputs[("cam_T_cam", 0, f_i)] = transformation_from_parameters_quat(
+                            rot_output[:, 0], translation[:, 0], invert=(f_i < 0))
+                    elif self.opt.rot_representation == "euler":
+                        outputs[("euler", 0, f_i)] = rot_output
+                        outputs[("cam_T_cam", 0, f_i)] = transformation_from_parameters_euler(
+                            rot_output[:, 0], translation[:, 0], invert=(f_i < 0))
                     else:
                         assert NotImplementedError(f"Invalid rot_representation: {self.opt.rot_representation}")
                     

@@ -6,6 +6,8 @@ from .warping import (
     transformation_from_parameters,
     transformation_from_parameters_6D,
     transformation_from_parameters_9D,
+    transformation_from_parameters_quat,
+    transformation_from_parameters_euler,
     get_translation_matrix,
     rot_from_axisangle,
     rot_from_6d,

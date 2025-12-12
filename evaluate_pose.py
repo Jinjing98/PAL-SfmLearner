@@ -10,7 +10,9 @@ from utils import (
     readlines,
     transformation_from_parameters,
     transformation_from_parameters_6D,
-    transformation_from_parameters_9D
+    transformation_from_parameters_9D,
+    transformation_from_parameters_quat,
+    transformation_from_parameters_euler
 )
 from options import MonodepthOptions
 from datasets import SCAREDRAWDataset
@@ -210,6 +212,12 @@ def evaluate(opt):
                     rot_output[:, 0], translation[:, 0])
             elif rot_representation == "9D":
                 pose_matrix = transformation_from_parameters_9D(
+                    rot_output[:, 0], translation[:, 0])
+            elif rot_representation == "quat":
+                pose_matrix = transformation_from_parameters_quat(
+                    rot_output[:, 0], translation[:, 0])
+            elif rot_representation == "euler":
+                pose_matrix = transformation_from_parameters_euler(
                     rot_output[:, 0], translation[:, 0])
             else:
                 raise ValueError(f"Unsupported rotation representation: {rot_representation}")

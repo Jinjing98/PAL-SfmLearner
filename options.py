@@ -114,7 +114,7 @@ class MonodepthOptions:
                                  type=str,
                                  help="pose net type",
                                  default="angle_axis",
-                                 choices=["9D", "6D", "angle_axis"])
+                                 choices=["9D", "6D", "angle_axis", "euler", "quat"])
         self.parser.add_argument("--explicit_bias_init_6d9d",
                                 help="enable explicit initialization for 6D/9D rotation representations",
                                 action="store_true",

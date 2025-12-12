@@ -17,6 +17,8 @@ from utils.warping import (
     transformation_from_parameters,
     transformation_from_parameters_6D,
     transformation_from_parameters_9D,
+    transformation_from_parameters_quat,
+    transformation_from_parameters_euler,
     BackprojectDepth,
     Project3D,
     SpatialTransformer
@@ -732,6 +734,14 @@ class Trainer:
                         outputs[("rot9d", 0, f_i)] = rot_output
                         outputs[("cam_T_cam", 0, f_i)] = transformation_from_parameters_9D(
                             rot_output[:, 0], translation[:, 0])
+                    elif rot_representation == "quat":
+                        outputs[("quat", 0, f_i)] = rot_output
+                        outputs[("cam_T_cam", 0, f_i)] = transformation_from_parameters_quat(
+                            rot_output[:, 0], translation[:, 0])
+                    elif rot_representation == "euler":
+                        outputs[("euler", 0, f_i)] = rot_output
+                        outputs[("cam_T_cam", 0, f_i)] = transformation_from_parameters_euler(
+                            rot_output[:, 0], translation[:, 0])
                     else:
                         raise ValueError(f"Unsupported rotation representation: {rot_representation}")
                     
@@ -794,6 +804,14 @@ class Trainer:
                         rot9d = outputs[("rot9d", 0, frame_id)]
                         T = transformation_from_parameters_9D(
                             rot9d[:, 0], translation[:, 0] * mean_inv_depth[:, 0])
+                    elif rot_representation == "quat":
+                        quat = outputs[("quat", 0, frame_id)]
+                        T = transformation_from_parameters_quat(
+                            quat[:, 0], translation[:, 0] * mean_inv_depth[:, 0])
+                    elif rot_representation == "euler":
+                        euler = outputs[("euler", 0, frame_id)]
+                        T = transformation_from_parameters_euler(
+                            euler[:, 0], translation[:, 0] * mean_inv_depth[:, 0])
                     else:
                         raise ValueError(f"Unsupported rotation representation: {rot_representation}")
 

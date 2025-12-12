@@ -29,6 +29,14 @@ class PoseDecoder(nn.Module):
             self.rot_vec_dim = 9
         elif self.rot_representation == "6D":
             self.rot_vec_dim = 6
+        elif self.rot_representation == "euler":
+            # https://github.dev/ClementPinard/SfmLearner-Pytorch
+            # xyz: yaw, pitch, roll
+            self.rot_vec_dim = 3
+        elif self.rot_representation == "quat":
+            # https://github.dev/ClementPinard/SfmLearner-Pytorch
+            # rx,ry,rz: rw is computed to have a norm of 1
+            self.rot_vec_dim = 3
 
         self.convs = OrderedDict()
         self.convs[("squeeze")] = nn.Conv2d(self.num_ch_enc[-1], 256, 1)
@@ -83,6 +91,26 @@ class PoseDecoder(nn.Module):
                 return axisangle, translation, intermediate_feature
             else:
                 return axisangle, translation
+        elif self.rot_representation == "euler":
+            out = out.view(-1, self.num_frames_to_predict_for, 1, self.trans_vec_dim + self.rot_vec_dim)
+            
+            # naive mul: scale euler angles by rot_scale_factor
+            euler = self.rot_scale_factor*out[..., :self.rot_vec_dim]
+            translation = self.trans_scale_factor*out[..., self.rot_vec_dim:]
+            if ret_intermediate_feat:
+                return euler, translation, intermediate_feature
+            else:
+                return euler, translation
+        elif self.rot_representation == "quat":
+            out = out.view(-1, self.num_frames_to_predict_for, 1, self.trans_vec_dim + self.rot_vec_dim)
+            
+            # naive mul: scale quaternion by rot_scale_factor
+            quat = self.rot_scale_factor*out[..., :self.rot_vec_dim]
+            translation = self.trans_scale_factor*out[..., self.rot_vec_dim:]
+            if ret_intermediate_feat:
+                return quat, translation, intermediate_feature
+            else:
+                return quat, translation
         elif self.rot_representation == "9D":
             out = out.view(-1, self.num_frames_to_predict_for, 1, self.trans_vec_dim + self.rot_vec_dim)
             
