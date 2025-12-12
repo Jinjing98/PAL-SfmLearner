@@ -34,10 +34,9 @@ CUDA_VISIBLE_DEVICES=0 python \
 --train_data_file train_files.txt \
 --val_data_file val_files.txt \
 --test_data_file test_files.txt \
---explicit_bias_init_6d9d \
 --rot_representation 6D \
---rot_representation 9D \
 --rot_representation angle_axis \
+--rot_representation 9D \
 --backbone_size base \
 --log_dir /mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm/endodac \
 --pretrained_path /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/weights/depthanything \
@@ -46,16 +45,19 @@ CUDA_VISIBLE_DEVICES=0 python \
 --exp_suffix full_endodacB_angleaxis_GTrot \
 --exp_suffix full_endodacB_angleaxis_baseline_defaultPredictK \
 --exp_suffix full_endodacB_angleaxis_optmizedK \
---learn_intrinsics True \
---of_samples \
---of_samples_num 16 \
---train_data_file d6_kf2.txt \
---val_data_file d6_kf2.txt \
---save_frequency 1000 \
---log_frequency 1 \
---num_epochs 20 \
---batch_size 2 \
---log_dir /mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm/endodac_dbg \
+--exp_suffix full_endodacB_9D_defInit_naiveMul_baseline \
+# --learn_intrinsics True \
+# --of_samples \
+# --of_samples_num 16 \
+# --train_data_file d6_kf2.txt \
+# --val_data_file d6_kf2.txt \
+# --save_frequency 1000 \
+# --log_frequency 1 \
+# --num_epochs 20 \
+# --batch_size 2 \
+# --log_dir /mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm/endodac_dbg \
+
+# --explicit_bias_init_6d9d \
 
 
 # --reproj_supervise_type color_warp \

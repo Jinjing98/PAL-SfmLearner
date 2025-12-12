@@ -85,10 +85,16 @@ class PoseDecoder(nn.Module):
                 return axisangle, translation
         elif self.rot_representation == "9D":
             out = out.view(-1, self.num_frames_to_predict_for, 1, self.trans_vec_dim + self.rot_vec_dim)
-            rot_9d = out[..., :self.rot_vec_dim]
-            # scale the r2,r3,r4, r6,r7,r8 by rot_scale_factor
-            rot_9d[..., 1:4] *= self.rot_scale_factor
-            rot_9d[..., 5:8] *= self.rot_scale_factor
+            
+            if self.explicit_bias_init_6d9d:
+                rot_9d = out[..., :self.rot_vec_dim]
+                # scale the r2,r3,r4, r6,r7,r8 by rot_scale_factor
+                rot_9d[..., 1:4] *= self.rot_scale_factor
+                rot_9d[..., 5:8] *= self.rot_scale_factor
+            else:
+                # naive mul as in https://github.com/amakadia/svd_for_pose?tab=readme-ov-file
+                rot_9d = self.rot_scale_factor*out[..., :self.rot_vec_dim]
+
             translation = self.trans_scale_factor*out[..., self.rot_vec_dim:]
             if ret_intermediate_feat:
                 return rot_9d, translation, intermediate_feature
@@ -96,10 +102,15 @@ class PoseDecoder(nn.Module):
                 return rot_9d, translation
         elif self.rot_representation == "6D":
             out = out.view(-1, self.num_frames_to_predict_for, 1, self.trans_vec_dim + self.rot_vec_dim)
-            rot_6d = out[..., :self.rot_vec_dim]
-            # scale the r2,r3,r4,r6 by rot_scale_factor
-            rot_6d[..., 1:4] *= self.rot_scale_factor
-            rot_6d[..., 5] *= self.rot_scale_factor
+            if self.explicit_bias_init_6d9d:
+                rot_6d = out[..., :self.rot_vec_dim]
+                # scale the r2,r3,r4,r6 by rot_scale_factor
+                rot_6d[..., 1:4] *= self.rot_scale_factor
+                rot_6d[..., 5] *= self.rot_scale_factor
+            else:
+                # naive mul as in https://github.com/amakadia/svd_for_pose?tab=readme-ov-file
+                rot_6d = self.rot_scale_factor*out[..., :self.rot_vec_dim]
+
             translation = self.trans_scale_factor*out[..., self.rot_vec_dim:]
             if ret_intermediate_feat:
                 return rot_6d, translation, intermediate_feature
