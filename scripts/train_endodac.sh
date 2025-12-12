@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #SBATCH --job-name=end_pose
-#SBATCH --gpus=a100:1   # rtxa5000 p6000 rtx6000 a100 v100 # monst3r requires 48GB each, only a100 supports
+#SBATCH --gpus=v100:1   # rtxa5000 p6000 rtx6000 a100 v100 # monst3r requires 48GB each, only a100 supports
 #SBATCH --nodes=1  # several gpus on one node
 #SBATCH --ntasks-per-node=1 #used for multi gpu training
 #SBATCH --mem=48G #64G #35G#25G  # 20G may cause bus error?   # mem * num_GPUS
@@ -36,20 +36,26 @@ CUDA_VISIBLE_DEVICES=0 python \
 --test_data_file test_files.txt \
 --explicit_bias_init_6d9d \
 --rot_representation 6D \
+--rot_representation 9D \
 --rot_representation angle_axis \
 --backbone_size base \
 --log_dir /mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm/endodac \
+--pretrained_path /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/weights/depthanything \
 --exp_suffix full_endodacB_6D_baseline \
---exp_suffix full_endodacB_angleaxis_baseline \
---of_samples \
---of_samples_num 16 \
---train_data_file d6_kf2.txt \
---val_data_file d6_kf2.txt \
---save_frequency 1000 \
---log_frequency 1 \
---num_epochs 20 \
---batch_size 2 \
---log_dir /mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm/endodac_dbg \
+--exp_suffix full_endodacB_9D_baseline \
+--exp_suffix full_endodacB_angleaxis_GTrot \
+--exp_suffix full_endodacB_angleaxis_baseline_defaultPredictK \
+--exp_suffix full_endodacB_angleaxis_optmizedK \
+# ---learn_intrinsics True
+# --of_samples \
+# --of_samples_num 16 \
+# --train_data_file d6_kf2.txt \
+# --val_data_file d6_kf2.txt \
+# --save_frequency 1000 \
+# --log_frequency 1 \
+# --num_epochs 20 \
+# --batch_size 2 \
+# --log_dir /mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm/endodac_dbg \
 
 
 # --reproj_supervise_type color_warp \

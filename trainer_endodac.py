@@ -135,6 +135,24 @@ class Trainer:
                 self.models['intrinsics_head'].to(self.device)
                 self.parameters_to_train += list(self.models['intrinsics_head'].parameters())
 
+        # Hardcoded flags: enable learnable camera intrinsics and GT rotations
+        self.learnable_K = False
+        self.replace_with_gt_rel_rotation = False
+        # self.learnable_K = True
+        # self.replace_with_gt_rel_rotation = True
+
+        # Initialize learnable camera intrinsics (normalized coordinates)
+        if self.learnable_K:
+            K_init = torch.tensor([
+                [0.82, 0.0, 0.5],
+                [0.0, 1.02, 0.5],
+                [0.0, 0.0, 1.0],
+            ], dtype=torch.float32, device=self.device)
+            self.learnable_K_params = torch.nn.Parameter(K_init.clone())
+            self.learnable_K_params.to(self.device)
+            self.parameters_to_train.append(self.learnable_K_params)
+            print("Learnable camera intrinsics enabled (hardcoded flag)")
+
         if self.opt.predictive_mask:
             assert self.opt.disable_automasking, \
                 "When using predictive_mask, please disable automasking with --disable_automasking"
@@ -613,6 +631,34 @@ class Trainer:
 
         return outputs, losses
 
+    def get_K_invK(self, inputs, outputs, scale, batch_size):
+        """
+        Get camera intrinsics K and inv_K for a given scale.
+        Priority: learn_intrinsics (predicted) > learnable_K (optimizable) > inputs
+        """
+        if self.opt.learn_intrinsics and ('K', scale) in outputs:
+            # Use predicted intrinsics from intrinsics_head
+            return outputs[('K', scale)], outputs[('inv_K', scale)]
+        elif self.learnable_K:
+            # Build normalized K using differentiable operations for proper gradient flow
+            K_norm = torch.cat([
+                torch.cat([self.learnable_K_params, torch.zeros(3, 1, device=self.device, dtype=torch.float32)], dim=1),
+                torch.tensor([[0.0, 0.0, 0.0, 1.0]], device=self.device, dtype=torch.float32)
+            ], dim=0)
+
+            # Scale K: first row by w, second row by h
+            h, w = self.opt.height // (2 ** scale), self.opt.width // (2 ** scale)
+            scale_rows = torch.tensor([[w, w, w, w], [h, h, h, h], [1, 1, 1, 1], [1, 1, 1, 1]], 
+                                     device=self.device, dtype=torch.float32)
+            K_scaled = K_norm * scale_rows
+
+            K = K_scaled.unsqueeze(0).repeat(batch_size, 1, 1)
+            inv_K = torch.inverse(K)
+            return K, inv_K
+        else:
+            # Fallback: use provided intrinsics from inputs
+            return inputs[("K", scale)], inputs[("inv_K", scale)]
+
     def predict_poses(self, inputs, disps):
         """Predict poses between input frames for monocular sequences.
         """
@@ -689,6 +735,15 @@ class Trainer:
                     else:
                         raise ValueError(f"Unsupported rotation representation: {rot_representation}")
                     
+                    # Optionally replace rotation with GT relative rotation if available
+                    if self.replace_with_gt_rel_rotation:
+                        if ("gt_c2w_poses", 0) in inputs and ("gt_c2w_poses", f_i) in inputs:
+                            gt_tgt_abs_poses = inputs[("gt_c2w_poses", 0)]  # (B, 4, 4)
+                            gt_src_abs_poses = inputs[("gt_c2w_poses", f_i)]  # (B, 4, 4)
+                            gt_tgt2src_rel_poses = torch.inverse(gt_src_abs_poses) @ gt_tgt_abs_poses
+                            outputs[("cam_T_cam", 0, f_i)][:, :3, :3] = gt_tgt2src_rel_poses[:, :3, :3]
+                            # If desired, translation could also be replaced; keeping network translation for now.
+
                     outputs[("translation", 0, f_i)] = translation
                     
         return outputs
@@ -711,15 +766,7 @@ class Trainer:
             outputs[("depth", 0, scale)] = depth
 
             source_scale = 0
-            if not self.opt.learn_intrinsics:
-                cam_K = inputs[("K", source_scale)]
-                inv_K = inputs[("inv_K", source_scale)]
-            else:
-                cam_K = outputs[('K', source_scale)]
-                inv_K = outputs[('inv_K', source_scale)]
-                # if self.step % (self.opt.log_frequency*5) == 0:
-                #     print("predicted K:", cam_K[0])
-                #     print("true K:", inputs[("K", 0)][0] )
+            cam_K, inv_K = self.get_K_invK(inputs, outputs, source_scale, depth.shape[0])
             for i, frame_id in enumerate(self.opt.frame_ids[1:]):
 
                 if frame_id == "s":
@@ -949,6 +996,17 @@ class Trainer:
             metrics_prefix = "metrics"
             for m, v in metrics.items():
                 writer.add_scalar("{}/{}".format(metrics_prefix, m), v, self.step)
+
+        # Log learned camera intrinsics if enabled
+        if self.learnable_K and hasattr(self, "learnable_K_params"):
+            fx = self.learnable_K_params[0, 0].item()
+            fy = self.learnable_K_params[1, 1].item()
+            cx = self.learnable_K_params[0, 2].item()
+            cy = self.learnable_K_params[1, 2].item()
+            writer.add_scalar("intrinsics/fx", fx, self.step)
+            writer.add_scalar("intrinsics/fy", fy, self.step)
+            writer.add_scalar("intrinsics/cx", cx, self.step)
+            writer.add_scalar("intrinsics/cy", cy, self.step)
 
         for j in range(min(4, self.opt.batch_size)):  # write a maxmimum of four images
             for s in self.opt.scales:
