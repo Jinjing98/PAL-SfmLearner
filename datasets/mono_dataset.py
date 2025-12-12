@@ -11,6 +11,9 @@ import torch
 import torch.utils.data as data
 from torchvision import transforms
 from torchvision.transforms import functional as F
+import time
+import errno
+from PIL import Image
 
 ImageFile.LOAD_TRUNCATED_IMAGES=True
 
@@ -20,6 +23,29 @@ def pil_loader(path):
     with open(path, 'rb') as f:
         with Image.open(f) as img:
             return img.convert('RGB')
+
+def pil_loader_robust(path, retries=10, delay=0.1):
+    """
+    Robust image loader with retry logic for network file systems (NFS/ZFS).
+    Catches BlockingIOError and generic OSErrors related to temporary unavailability.
+    """
+    for attempt in range(retries):
+        try:
+            # open path as file to avoid ResourceWarning
+            with open(path, 'rb') as f:
+                with Image.open(f) as img:
+                    return img.convert('RGB')
+                    
+        except (BlockingIOError, OSError) as e:
+            # Check if the error is essentially "Resource temporarily unavailable"
+            if isinstance(e, BlockingIOError) or e.errno == errno.EAGAIN:
+                # If we have attempts left, wait and retry
+                if attempt < retries - 1:
+                    time.sleep(delay)
+                    continue
+            
+            # If it's a different error (e.g. FileNotFoundError) or we are out of retries, crash
+            raise
 
 
 class MonoDataset(data.Dataset):
@@ -62,7 +88,8 @@ class MonoDataset(data.Dataset):
         self.is_train = is_train
         self.img_ext = img_ext
 
-        self.loader = pil_loader
+        # self.loader = pil_loader
+        self.loader = pil_loader_robust
         self.to_tensor = transforms.ToTensor()
 
         # We need to specify augmentations differently in newer versions of torchvision.
