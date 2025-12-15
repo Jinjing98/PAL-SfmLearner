@@ -24,6 +24,23 @@ class SCAREDDataset(MonoDataset):
                            [0, 0, 1, 0],
                            [0, 0, 0, 1]], dtype=np.float32)
 
+        #///////////////////////////////////////////////
+        # we take the abs K of d6_kf2 with 256,320 for example
+        self.debug_use_true_scale = True
+        self.debug_use_true_scale = False
+        self.K_true_scale_raw = np.array([
+                           [1086.97, 0, 586.08, 0],
+                           [0, 1086.77, 512.48, 0],
+                           [0, 0, 1, 0],
+                           [0, 0, 0, 1]], dtype=np.float32)
+        raw_height, raw_width = 1024, 1280
+        x_scale, y_scale = self.width / raw_width, self.height / raw_height
+        self.K_true_scale = self.K_true_scale_raw * np.array([[x_scale, 0, x_scale, 0],
+                                              [0, y_scale, y_scale, 0],
+                                              [0, 0, 1, 0],
+                                              [0, 0, 0, 1]], dtype=np.float32)
+        #///////////////////////////////////////////////
+
         # self.full_res_shape = (1280, 1024)
         self.side_map = {"2": 2, "3": 3, "l": 2, "r": 3}
         self.dataset_name = 'SCARED'
@@ -176,6 +193,8 @@ if __name__ == "__main__":
     width = 320
     frame_ids = [0, -1, 1]
     split = "endovis"
+    iterate_through_all_files = True
+    iterate_through_all_files = False
     
     # Read validation filenames
     splits_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "splits")
@@ -183,6 +202,7 @@ if __name__ == "__main__":
     val_fpath = os.path.join(splits_dir, split, "d6_kf2.txt")
     val_fpath = os.path.join(splits_dir, split, "test_files.txt")
     val_fpath = os.path.join(splits_dir, split, "train_files.txt")
+    val_fpath = os.path.join(splits_dir, split, "d6_kf2.txt")
     
     if not os.path.exists(val_fpath):
         print("Error: Validation split file not found at {}".format(val_fpath))
@@ -246,7 +266,8 @@ if __name__ == "__main__":
                 traceback.print_exc()
             
             # whether loop over all samples
-            # break
+            if not iterate_through_all_files:
+                break
 
         else:
             print("No validation filenames to test!")
