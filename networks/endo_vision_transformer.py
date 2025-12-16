@@ -92,8 +92,10 @@ class BlockChunk(nn.ModuleList):
 class EndoDinoVisionTransformer(nn.Module):
     def __init__(
         self,
-        img_size=224,
-        patch_size=16,
+        # img_size=224,
+        # patch_size=16,
+        img_size=518,
+        patch_size=14,
         in_chans=3,
         embed_dim=768,
         depth=12,
@@ -119,6 +121,8 @@ class EndoDinoVisionTransformer(nn.Module):
         rope_freq=100,
         plus_cam_token=False,
         cat_token=True,
+        # extract features
+        out_layers = [1],
     ):
         """
         Args:
@@ -146,6 +150,10 @@ class EndoDinoVisionTransformer(nn.Module):
                 positional embeddings
         """
         super().__init__()
+
+        # extract features
+        self.out_layers = out_layers
+
         self.patch_start_idx = 1
         norm_layer = nn.LayerNorm
         self.num_features = self.embed_dim = (
@@ -171,6 +179,10 @@ class EndoDinoVisionTransformer(nn.Module):
         if self.alt_start != -1:
             self.camera_token = nn.Parameter(torch.randn(1, 2, embed_dim))
         self.pos_embed = nn.Parameter(torch.zeros(1, num_patches + self.num_tokens, embed_dim))
+        
+        # rand init-debug
+        # self.pos_embed.data.normal_(mean=0.0, std=0.02)
+
         assert num_register_tokens >= 0
         self.register_tokens = (
             nn.Parameter(torch.zeros(1, num_register_tokens, embed_dim))
@@ -225,6 +237,9 @@ class EndoDinoVisionTransformer(nn.Module):
         ]
         self.blocks = nn.ModuleList(blocks_list)
         self.norm = norm_layer(embed_dim)
+
+    def forward(self, x, **kwargs):
+        return self.get_intermediate_layers(x, **kwargs)
 
     def interpolate_pos_encoding(self, x, w, h):
         previous_dtype = x.dtype
@@ -381,12 +396,12 @@ class EndoDinoVisionTransformer(nn.Module):
     def get_intermediate_layers(
         self,
         x: torch.Tensor,
-        n: Union[int, Sequence] = 1,  # Layers or n last layers to take
+        # n: Union[int, Sequence] = 1,  # Layers or n last layers to take
         export_feat_layers: List[int] = [],
         **kwargs,
     ) -> Tuple[Union[torch.Tensor, Tuple[torch.Tensor]]]:
         outputs, aux_outputs = self._get_intermediate_layers_not_chunked(
-            x, n, export_feat_layers=export_feat_layers, **kwargs
+            x, n=self.out_layers, export_feat_layers=export_feat_layers, **kwargs
         )
         camera_tokens = [out[0] for out in outputs]
         if outputs[0][1].shape[-1] == self.embed_dim:

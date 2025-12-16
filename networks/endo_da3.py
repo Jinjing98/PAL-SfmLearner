@@ -20,7 +20,6 @@ import torch.nn as nn
 from addict import Dict
 from omegaconf import DictConfig, OmegaConf
 
-
 import sys
 from pathlib import Path
 
@@ -40,9 +39,12 @@ from depth_anything_3.utils.alignment import (
 from depth_anything_3.utils.geometry import affine_inverse, as_homogeneous, map_pdf_to_opacity
 from depth_anything_3.utils.ray_utils import get_extrinsic_from_camray
 
+from utils.load_models import load_pretrained_weights
 
 def _wrap_cfg(cfg_obj):
     return OmegaConf.create(cfg_obj)
+
+
 
 
 class EndoDepthAnything3Net(nn.Module):
@@ -335,13 +337,80 @@ if __name__ == "__main__":
 
     from depth_anything_3.cfg import create_object, load_config
     from depth_anything_3.utils.io.input_processor import InputProcessor  
+    from depth_anything_3.api import DepthAnything3
+    from utils.util import set_seed
 
+    # Set seed for reproducible initialization (if not loading pretrained weights)
+    set_seed(42)
+    
     # Model = create_object(load_config("networks/configs/endo-da3-all.yaml"))
-    Model = create_object(load_config("networks/configs/endo-da3-depth.yaml"))
+
+    Model_with_wrapper = create_object(load_config("networks/configs/endo-da3-depth.yaml"))
+    Model_with_wrapper.eval()
+    Model_with_wrapper.to("cuda")
+
+    # Set seed again before creating second model to ensure same initialization
+    set_seed(42)
+    
+    Model = create_object(load_config("networks/configs/endo-da3-depth-wowrapper.yaml"))
     Model.eval()
     Model.to("cuda")
-    # Model.forward(torch.randn(1, 5, 3, 224, 280).to("cuda"))
-    Model.forward(torch.randn(1, 3, 3, 336, 504).to("cuda"))
+
+    # Load pretrained weights
+    print("\n" + "="*60)
+    print("Loading pretrained weights from DepthAnything3")
+    print("="*60)
+    
+    model_pretrained = DepthAnything3.from_pretrained("depth-anything/da3-base")
+    model_pretrained = model_pretrained.to(device="cuda")
+    
+    # Load weights into Model (without wrapper - needs to remove both prefixes)
+    load_pretrained_weights(
+        model=Model,
+        pretrained_model=model_pretrained,
+        model_name="Model",
+        remove_prefixes=["model.", "pretrained."],
+        strict=False,
+        max_levels=3,
+        verbose=False
+    )
+    
+    # Load weights into Model_with_wrapper (only needs to remove model. prefix)
+    load_pretrained_weights(
+        model=Model_with_wrapper,
+        pretrained_model=model_pretrained,
+        model_name="Model_with_wrapper",
+        remove_prefixes=["model."],
+        strict=False,
+        max_levels=3,
+        verbose=False
+    )
+    
+
+    # Test with same input
+    set_seed(42)  # Set seed for input tensor too
+    input_tensor = torch.randn(1, 3, 3, 336, 504).to("cuda")
+    
+    with torch.no_grad():
+        output = Model.forward(input_tensor)
+        output_with_wrapper = Model_with_wrapper.forward(input_tensor)
+    
+    print("\n" + "="*60)
+    print("Output Comparison:")
+    print("="*60)
+    print(f"Output depth shape: {output['depth'].shape}")
+    print(f"Wrapper depth shape: {output_with_wrapper['depth'].shape}")
+    
+    if output['depth'].shape == output_with_wrapper['depth'].shape:
+        # max_diff = (output["depth"] - output_with_wrapper["depth"]).abs().max().item()
+        # mean_diff = (output["depth"] - output_with_wrapper["depth"]).abs().mean().item()
+        # print(f"Max difference: {max_diff:.6e}")
+        # print(f"Mean difference: {mean_diff:.6e}")
+        print(f"Are outputs identical? {(output['depth'] == output_with_wrapper['depth']).all().item()}")
+    else:
+        print("Output shapes don't match!")
+
+
 
 
 
