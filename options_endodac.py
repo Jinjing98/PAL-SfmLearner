@@ -40,6 +40,10 @@ class MonodepthOptions:
                                  help="size of pretrained Dinov2 backbone",
                                  choices=["small", "base", "large", "giant"],
                                  default="base")
+        self.parser.add_argument("--dino_resize_hw",
+                                 type=tuple,
+                                 help="resize height and width of DinoV2 backbone",
+                                 default=(224,280))
         self.parser.add_argument("--lora_type",
                                  type=str,
                                  help="which lora type use for the model",

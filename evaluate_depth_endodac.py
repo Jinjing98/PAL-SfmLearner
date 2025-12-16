@@ -94,7 +94,7 @@ def evaluate(opt):
         if opt.model_type == 'endodac':
             depther = endodac.endodac(
                 backbone_size = "base", r=opt.lora_rank, lora_type=opt.lora_type,
-                image_shape=(224,280), pretrained_path=opt.pretrained_path,
+                image_shape=opt.dino_resize_hw, pretrained_path=opt.pretrained_path,
                 residual_block_indexes=opt.residual_block_indexes,
                 include_cls_token=opt.include_cls_token)
             model_dict = depther.state_dict()
