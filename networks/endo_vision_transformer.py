@@ -26,6 +26,7 @@ from depth_anything_3.model.dinov2.layers import (  # noqa: F401
     RotaryPositionEmbedding2D,
     SwiGLUFFNFused,
 )
+from .layers_da3 import BlockWithResidual
 # from .layers import LayerScale  # noqa: F401
 # from .layers import Mlp  # noqa: F401
 # from .layers import (  # noqa: F401
@@ -123,6 +124,9 @@ class EndoDinoVisionTransformer(nn.Module):
         cat_token=True,
         # extract features
         out_layers = [1],
+        residual_block_indexes=[],
+        res_conv_kernel_size=3,
+        res_conv_padding=1,
     ):
         """
         Args:
@@ -175,6 +179,17 @@ class EndoDinoVisionTransformer(nn.Module):
             img_size=img_size, patch_size=patch_size, in_chans=in_chans, embed_dim=embed_dim
         )
         num_patches = self.patch_embed.num_patches
+        
+        # Store residual block configuration
+        self.residual_block_indexes = residual_block_indexes
+        # sanity check residual_block_indexes so that they are all local attention blocks
+        for idx in residual_block_indexes:
+            is_global = self.alt_start != -1 and idx >= self.alt_start and idx % 2 == 1
+            assert not is_global, "residual layer can be done on local attention block only, \
+                unless temporal dim S is 1, global layers are not supported--comment the assert if this is the case..."
+
+        self.res_conv_kernel_size = res_conv_kernel_size
+        self.res_conv_padding = res_conv_padding
         self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
         if self.alt_start != -1:
             self.camera_token = nn.Parameter(torch.randn(1, 2, embed_dim))
@@ -217,24 +232,59 @@ class EndoDinoVisionTransformer(nn.Module):
             self.position_getter = PositionGetter() if self.rope is not None else None
         else:
             self.rope = None
-        blocks_list = [
-            block_fn(
-                dim=embed_dim,
-                num_heads=num_heads,
-                mlp_ratio=mlp_ratio,
-                qkv_bias=qkv_bias,
-                proj_bias=proj_bias,
-                ffn_bias=ffn_bias,
-                drop_path=dpr[i],
-                norm_layer=norm_layer,
-                act_layer=act_layer,
-                ffn_layer=ffn_layer,
-                init_values=init_values,
-                qk_norm=i >= qknorm_start if qknorm_start != -1 else False,
-                rope=self.rope if i >= rope_start and rope_start != -1 else None,
-            )
-            for i in range(depth)
-        ]
+        # Determine which block class to use based on residual_block_indexes
+        # has_residual_blocks = any(i in residual_block_indexes for i in range(depth))
+        
+        blocks_list = []
+        for i in range(depth):
+            use_residual = i in residual_block_indexes
+            # if use_residual or has_residual_blocks:
+            if use_residual:
+                print(f"Use_residual: {use_residual} for block index: {i}")
+                # Use BlockWithResidual wrapper if this block or any block needs residual blocks
+                block = BlockWithResidual(
+                    dim=embed_dim,
+                    num_heads=num_heads,
+                    mlp_ratio=mlp_ratio,
+                    qkv_bias=qkv_bias,
+                    proj_bias=proj_bias,
+                    ffn_bias=ffn_bias,
+                    drop=0.0,  # Default value
+                    attn_drop=0.0,  # Default value
+                    drop_path=dpr[i],
+                    norm_layer=norm_layer,
+                    act_layer=act_layer,
+                    ffn_layer=ffn_layer,
+                    init_values=init_values,
+                    qk_norm=i >= qknorm_start if qknorm_start != -1 else False,
+                    rope=self.rope if i >= rope_start and rope_start != -1 else None,
+                    use_residual_block=use_residual,
+                    res_conv_kernel_size=res_conv_kernel_size,
+                    res_conv_padding=res_conv_padding,
+                    patch_size=patch_size,
+                    # input_img_size=(img_size, img_size),
+                    input_img_size=(224, 280),
+                )
+            else:
+                # Use original block_fn if no residual blocks needed
+                block = block_fn(
+                    dim=embed_dim,
+                    num_heads=num_heads,
+                    mlp_ratio=mlp_ratio,
+                    qkv_bias=qkv_bias,
+                    proj_bias=proj_bias,
+                    ffn_bias=ffn_bias,
+                    drop=0.0,  # Default value
+                    attn_drop=0.0,  # Default value
+                    drop_path=dpr[i],
+                    norm_layer=norm_layer,
+                    act_layer=act_layer,
+                    ffn_layer=ffn_layer,
+                    init_values=init_values,
+                    qk_norm=i >= qknorm_start if qknorm_start != -1 else False,
+                    rope=self.rope if i >= rope_start and rope_start != -1 else None,
+                )
+            blocks_list.append(block)
         self.blocks = nn.ModuleList(blocks_list)
         self.norm = norm_layer(embed_dim)
 

@@ -8,7 +8,6 @@ lora_type: "lora"
 # lora_type: "dvlora"
 # lora_type: "none"
 lora_r: 4
-# residual_block_indexes: [2, 5, 8, 11]
 
 dino_resize_hw:
   - 224
@@ -39,6 +38,13 @@ net:
   # used for extract DPT input for depth estimation
   out_layers: [5, 7, 9, 11] # default in DA3
   # out_layers: [8, 9, 10, 11] # endoDAC style
+
+  # residual_block_indexes: [2, 5, 8, 11] # endodac
+  # global layers: 5, 7, 9, 11
+  # endo_da3: avoid add res on global layers; only doable if temporal_dim S is 1
+  # residual_block_indexes: [4, 6, 8, 10] 
+  residual_block_indexes: []
+
 
 head:
   __object__:
