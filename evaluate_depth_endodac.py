@@ -215,12 +215,13 @@ def evaluate(opt):
 
             gt_height, gt_width = gt_depth.shape[:2]
             if opt.model_type == 'depthanything3':
-                # print('pred_depth shape:')
-                # print(pred_depth.shape, pred_depth.min(), pred_depth.max())
+                assert pred_depth.shape == (224, 280), f"pred_depth shape: {pred_depth.shape}"
                 pred_depth = cv2.resize(pred_depth, (gt_width, gt_height))
-                # print('resized pred_depth shape:')
-                # print(pred_depth.shape, pred_depth.min(), pred_depth.max())
             elif opt.model_type == 'endodac' or opt.model_type == 'afsfm':
+                if opt.model_type == 'endodac':
+                    assert pred_disp.shape == (256, 320), f"pred_disp shape: {pred_disp.shape} != (256, 320), it should be already resized as 256,320 before put in outputs"
+                elif opt.model_type == 'afsfm':
+                    assert pred_disp.shape == (256, 320), f"pred_disp shape: {pred_disp.shape} != (256, 320), it should be already resized as 256,320 before put in our model"
                 pred_disp = cv2.resize(pred_disp, (gt_width, gt_height))
                 pred_depth = 1/pred_disp
             else:
