@@ -22,6 +22,7 @@ from .dataset_utils import (
     pose_vec_to_mat,
     read_freiburg_scipy,
     map_traj_search,
+    map_traj_search_SCARED_DEPTH,
     get_gt_poses,
     get_poses_for_frames,
 )

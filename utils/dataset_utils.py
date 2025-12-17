@@ -56,6 +56,21 @@ def read_freiburg_scipy(path: str, ret_stamps=False, no_stamp=False, trans_scale
     return pose_matrix
 
 
+def map_traj_search_SCARED_DEPTH(folder, traj_data_root):
+    """
+    Map folder path to trajectory search path.
+    """
+    parts = folder.split('/')
+    if len(parts) == 2:
+        sequence = int(parts[0].replace('dataset', ''))
+        keyframe = int(parts[1].replace('keyframe', ''))
+
+        split_dir_ori = 'test_' if sequence in range(8, 10) else ''
+        trajfolder = f'{traj_data_root}{split_dir_ori}dataset_{sequence}/keyframe_{keyframe}'
+        return trajfolder
+    else:
+        raise ValueError(f"Invalid folder format: {folder}")
+
 def map_traj_search(folder, traj_data_root):
     """
     Map folder path to trajectory search path.

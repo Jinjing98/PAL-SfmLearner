@@ -14,6 +14,7 @@ from utils import (
 
 DEFAULT_D7K4_SCENE_POINTS_DIR='/mnt/nct-zfs/TCO-All/SharedDatasets/SCARED_Depth/dataset_7/keyframe_4/data/scene_points'
 DATA_PATH='/mnt/cluster/datasets/SCARED/'
+DEPTH_PATH='/mnt/nct-zfs/TCO-All/SharedDatasets/SCARED_Depth/'
 
 class SCAREDDataset(MonoDataset):
     def __init__(self, *args, **kwargs):
@@ -127,14 +128,19 @@ class SCAREDRAWDataset(SCAREDDataset):
         f_str = "scene_points{:06d}.tiff".format(frame_index - 1)
         depth_path = None
 
-        from utils import map_traj_search
+        from utils import map_traj_search, map_traj_search_SCARED_DEPTH
         traj_folder = map_traj_search(folder, DATA_PATH)
         depth_path = os.path.join(traj_folder, 'data', 'scene_points', f_str)
+        # depth_path = os.path.join(depth_folder, 'data', f_str)
         # print(f"Depth path sanity: {depth_path} for folder: {folder} frame: {frame_index}")
         if not os.path.exists(depth_path):
             print(f"Depth file {depth_path} does not exist. d7k4?")
             depth_path = os.path.join(DEFAULT_D7K4_SCENE_POINTS_DIR, f_str)
             assert os.path.exists(depth_path), f"Depth file {depth_path} does not exist."
+
+        # completely use depth from SCARED_Depth dataset
+        # depth_folder = map_traj_search_SCARED_DEPTH(folder, DEPTH_PATH)
+        # depth_path = os.path.join(depth_folder, 'data', 'scene_points', f_str)
 
         depth_gt = cv2.imread(depth_path, 3)
         if depth_gt is None:
