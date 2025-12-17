@@ -162,6 +162,57 @@ def get_translation_matrix(translation_vector):
 
     return T
 
+def rot_from_quat_xyzw(quat_xyzw):
+    """Convert quaternion coefficients to rotation matrix.
+    
+    Args:
+        quat_xyzw: Quaternion in XYZW format (scalar-last) -- size = [B, 4] or (..., 4)
+                   Format: [x, y, z, w] where w is the scalar part
+    Returns:
+        Rotation matrix corresponding to the quaternion -- size = [B, 3, 3] or (..., 3, 3)
+    """
+    # Reorder from XYZW [x, y, z, w] to WXYZ [w, x, y, z] format
+    # Extract components and reorder
+    x, y, z, w = quat_xyzw[..., 0], quat_xyzw[..., 1], quat_xyzw[..., 2], quat_xyzw[..., 3]
+    quat_wxyz = torch.stack([w, x, y, z], dim=-1)
+    
+    # Reuse rot_from_quat_wxyz which handles WXYZ format
+    return rot_from_quat_wxyz(quat_wxyz)
+
+
+def rot_from_quat_wxyz(quat_wxyz):
+    """Convert quaternion coefficients to rotation matrix.
+    
+    Args:
+        quat_wxyz: Quaternion in WXYZ format (scalar-first) -- size = [B, 4] or (..., 4)
+                   Format: [w, x, y, z] where w is the scalar part
+    Returns:
+        Rotation matrix corresponding to the quaternion -- size = [B, 3, 3] or (..., 3, 3)
+    """
+    # Normalize the quaternion
+    norm_quat = quat_wxyz / quat_wxyz.norm(p=2, dim=-1, keepdim=True)
+    
+    # Extract components: [w, x, y, z]
+    w, x, y, z = norm_quat[..., 0], norm_quat[..., 1], norm_quat[..., 2], norm_quat[..., 3]
+    
+    # Get batch dimensions (handle arbitrary shape)
+    batch_shape = quat_wxyz.shape[:-1]
+    
+    # Compute squares and products
+    w2, x2, y2, z2 = w.pow(2), x.pow(2), y.pow(2), z.pow(2)
+    wx, wy, wz = w*x, w*y, w*z
+    xy, xz, yz = x*y, x*z, y*z
+    
+    # Build rotation matrix using standard quaternion to rotation matrix formula
+    rotMat = torch.stack([
+        w2 + x2 - y2 - z2, 2*xy - 2*wz, 2*wy + 2*xz,
+        2*wz + 2*xy, w2 - x2 + y2 - z2, 2*yz - 2*wx,
+        2*xz - 2*wy, 2*wx + 2*yz, w2 - x2 - y2 + z2
+    ], dim=-1).reshape(*batch_shape, 3, 3)
+    
+    return rotMat
+
+
 def rot_from_quat(quat):
     """Convert quaternion coefficients to rotation matrix.
 
@@ -315,6 +366,89 @@ def rot_from_6d(d6):  # code from pytorch3d
     b2 = F.normalize(b2, dim=-1)
     b3 = torch.cross(b1, b2, dim=-1)
     return torch.stack((b1, b2, b3), dim=-2)
+
+def pose_encoding_to_extri_intri_v2(
+    pose_encoding,
+    image_size_hw=None,
+    rot_representation="quat_xyzw",
+):
+    """Convert a pose encoding back to camera extrinsics and intrinsics.
+    
+    Args:
+        pose_encoding: Tensor of shape (..., N) containing [T(3), rotation(M), fov_h(1), fov_w(1)]
+                      Expected dimensions:
+                      - "angle_axis": N=8 (3+3+1+1)
+                      - "euler": N=8 (3+3+1+1)
+                      - "quat": N=8 (3+3+1+1)
+                      - "quat_xyzw": N=9 (3+4+1+1)
+                      - "quat_wxyz": N=9 (3+4+1+1)
+                      - "6D": N=11 (3+6+1+1)
+                      - "9D": N=14 (3+9+1+1)
+        image_size_hw: Tuple of (height, width) for intrinsics computation
+        rot_representation: Rotation representation type
+    
+    Returns:
+        extrinsics: Camera extrinsics tensor of shape (..., 3, 4)
+        intrinsics: Camera intrinsics tensor of shape (..., 3, 3)
+    """
+    # Rotation dimension mapping
+    rot_dims = {
+        "angle_axis": 3, "euler": 3, "quat": 3,
+        "quat_xyzw": 4, "quat_wxyz": 4,
+        "6D": 6, "9D": 9
+    }
+    
+    if rot_representation not in rot_dims:
+        raise ValueError(
+            f"Unsupported rotation representation: {rot_representation}. "
+            f"Supported: {', '.join(rot_dims.keys())}"
+        )
+    
+    # Sanity check: expected total dimension
+    expected_dim = 3 + rot_dims[rot_representation] + 2  # T(3) + rot(M) + fov(2)
+    actual_dim = pose_encoding.shape[-1]
+    assert actual_dim == expected_dim, \
+        f"pose_encoding dimension mismatch: expected {expected_dim} for {rot_representation}, got {actual_dim}"
+    
+    # Extract components (fov_h, fov_w are always last two)
+    T = pose_encoding[..., :3]
+    rot = pose_encoding[..., 3:3+rot_dims[rot_representation]]
+    fov_h = pose_encoding[..., -2]
+    fov_w = pose_encoding[..., -1]
+    
+    # Convert rotation to matrix
+    if rot_representation == "angle_axis":
+        original_shape = rot.shape[:-1]
+        R_4x4 = rot_from_axisangle(rot.reshape(-1, 1, 3))
+        R = R_4x4[:, :3, :3].reshape(*original_shape, 3, 3)
+    elif rot_representation == "euler":
+        R = rot_from_euler(rot)
+    elif rot_representation == "quat":
+        R = rot_from_quat(rot)
+    elif rot_representation == "quat_xyzw":
+        R = rot_from_quat_xyzw(rot)
+    elif rot_representation == "quat_wxyz":
+        R = rot_from_quat_wxyz(rot)
+    elif rot_representation == "6D":
+        R = rot_from_6d(rot)
+    elif rot_representation == "9D":
+        original_shape = rot.shape[:-1]
+        R_flat = rot_from_9d(rot.reshape(-1, 1, 9))
+        R = R_flat.reshape(*original_shape, 3, 3)
+
+    extrinsics = torch.cat([R, T[..., None]], dim=-1)
+
+    H, W = image_size_hw
+    fy = (H / 2.0) / torch.clamp(torch.tan(fov_h / 2.0), 1e-6)
+    fx = (W / 2.0) / torch.clamp(torch.tan(fov_w / 2.0), 1e-6)
+    intrinsics = torch.zeros(pose_encoding.shape[:2] + (3, 3), device=pose_encoding.device)
+    intrinsics[..., 0, 0] = fx
+    intrinsics[..., 1, 1] = fy
+    intrinsics[..., 0, 2] = W / 2
+    intrinsics[..., 1, 2] = H / 2
+    intrinsics[..., 2, 2] = 1.0  # Set the homogeneous coordinate to 1
+
+    return extrinsics, intrinsics
 
 
 class BackprojectDepth(nn.Module):

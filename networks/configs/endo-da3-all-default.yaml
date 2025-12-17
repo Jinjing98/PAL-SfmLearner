@@ -3,6 +3,7 @@ __object__:
   name: DepthAnything3Net
   args: as_params
 
+# use the original DinoV2 wrapper
 net:
   __object__:
     path: depth_anything_3.model.dinov2.dinov2
@@ -27,6 +28,14 @@ head:
   features: &head_features 128
   out_channels: &head_out_channels [96, 192, 384, 768]
 
+cam_enc:
+  __object__:
+    path: depth_anything_3.model.cam_enc
+    name: CameraEnc
+    args: as_params
+
+  dim_out: 768
+
 cam_dec:
   __object__:
     path: depth_anything_3.model.cam_dec
@@ -34,12 +43,3 @@ cam_dec:
     args: as_params
 
   dim_in: 1536
-
-
-# cam_enc:
-#   __object__:
-#     path: depth_anything_3.model.cam_enc
-#     name: CameraEnc
-#     args: as_params
-
-#   dim_out: 768

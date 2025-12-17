@@ -7,6 +7,8 @@ dino_resize_hw:
   - 224
   - 280
 ref_view_strategy: "first"
+
+# dino_resize_hw:
 # ref_view_strategy: "saddle_balanced"
 
 net:
@@ -27,41 +29,44 @@ net:
   qknorm_start: 4
   rope_start: 4
   cat_token: True
-  # cat_token: False # dim_in for head should be set to 768
   # used for extract DPT input for depth estimation
   out_layers: [5, 7, 9, 11] # default in DA3
   # out_layers: [8, 9, 10, 11] # endoDAC style
 
-# head:
-#   __object__:
-#     path: depth_anything_3.model.dualdpt
-#     name: DualDPT
-#     args: as_params
-
-#   dim_in: &head_dim_in 1536
-#   output_dim: 2
-#   features: &head_features 128
-#   out_channels: &head_out_channels [96, 192, 384, 768]
-
-# dpt head
 head:
   __object__:
-    path: depth_anything_3.model.dpt #depth_anything_3.model.dualdpt
-    name: DPT #DualDPT
+    path: depth_anything_3.model.dualdpt
+    name: DualDPT
     args: as_params
 
-  # below param setting enables loading depth_dpt from pretrained dualDPT
   dim_in: &head_dim_in 1536
   output_dim: 2
-  norm_type: "layer"
-  pos_embed: True
-
-  # below param enable train naive depth-only DPT from scratch
-  # dim_in: &head_dim_in 768 # as cat_token is False
-  # norm_type: "idt"
-  # pos_embed: False
-
   features: &head_features 128
   out_channels: &head_out_channels [96, 192, 384, 768]
-  use_sky_head: False
 
+
+cam_enc:
+  __object__:
+    path: depth_anything_3.model.cam_enc
+    name: CameraEnc
+    args: as_params
+
+  dim_out: 768
+
+cam_dec:
+  __object__:
+    path: networks
+    name: EndoCameraDec
+    args: as_params
+
+  dim_in: 1536
+  # rot_representation: "euler"
+  # rot_representation: "quat"
+  # rot_representation: "6D"
+
+  rot_representation: "quat_xyzw"
+  # rot_representation: "9D"
+  # rot_representation: "angle_axis"
+  rot_scale_factor: 1.0
+  trans_scale_factor: 1.0
+  explicit_bias_init_6d9d: True

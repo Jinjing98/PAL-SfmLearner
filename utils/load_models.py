@@ -5,18 +5,18 @@ Utility functions for loading and managing model weights.
 from typing import Dict, List, Tuple
 import torch
 
-# Import existing utilities from depth_anything_3
-try:
-    from depth_anything_3.utils.model_loading import (
-        convert_general_state_dict,
-        load_pretrained_weights as da3_load_pretrained_weights,
-    )
-    from depth_anything_3.utils.logger import logger
-except ImportError:
-    # Fallback if imports fail
-    convert_general_state_dict = None
-    da3_load_pretrained_weights = None
-    logger = None
+# # Import existing utilities from depth_anything_3
+# try:
+#     from depth_anything_3.utils.model_loading import (
+#         convert_general_state_dict,
+#         load_pretrained_weights as da3_load_pretrained_weights,
+#     )
+#     from depth_anything_3.utils.logger import logger
+# except ImportError:
+# Fallback if imports fail
+convert_general_state_dict = None
+da3_load_pretrained_weights = None
+logger = None
 
 
 def get_key_prefixes(keys, max_levels=3):
@@ -121,8 +121,50 @@ def prepare_state_dict(state_dict, remove_prefixes=None):
     return cleaned_dict
 
 
+def filter_state_dict(state_dict, disable_modules=None):
+    """
+    Filter state dict by excluding keys that start with specified module names.
+    
+    Args:
+        state_dict: Original state dictionary
+        disable_modules: List of module names to exclude (e.g., ['head', 'cam_dec'])
+                        Keys starting with any of these will be filtered out
+    
+    Returns:
+        Filtered state dictionary
+    """
+    if disable_modules is None or not disable_modules:
+        return state_dict
+    
+    # Normalize module names (ensure they end with '.' for prefix matching)
+    normalized_modules = []
+    for module in disable_modules:
+        if not module.endswith('.'):
+            normalized_modules.append(module + '.')
+        else:
+            normalized_modules.append(module)
+    
+    filtered_dict = {}
+    excluded_count = 0
+    for key, value in state_dict.items():
+        should_exclude = False
+        for module_prefix in normalized_modules:
+            if key.startswith(module_prefix):
+                should_exclude = True
+                excluded_count += 1
+                break
+        if not should_exclude:
+            filtered_dict[key] = value
+    
+    if excluded_count > 0:
+        print(f"  Excluded {excluded_count} keys from pretrained weights based on disabled modules: {disable_modules}")
+    
+    return filtered_dict
+
+
 def load_pretrained_weights(model, pretrained_model, model_name="Model", 
-                           remove_prefixes=None, strict=False, max_levels=3, verbose=False):
+                           remove_prefixes=None, disable_modules=None, strict=False, 
+                           max_levels=3, verbose=False):
     """
     Load pretrained weights into a model with clean reporting.
     
@@ -131,6 +173,7 @@ def load_pretrained_weights(model, pretrained_model, model_name="Model",
         pretrained_model: Source model with pretrained weights
         model_name: Name for display purposes
         remove_prefixes: List of prefixes to remove from state dict keys
+        disable_modules: List of module names to exclude from loading (e.g., ['head', 'cam_dec'])
         strict: Whether to use strict loading
         max_levels: Maximum depth of key paths to show in info
         verbose: Whether to show full key details
@@ -140,9 +183,13 @@ def load_pretrained_weights(model, pretrained_model, model_name="Model",
     """
     pretrained_state_dict = pretrained_model.state_dict()
     
+  
     if remove_prefixes:
         pretrained_state_dict = prepare_state_dict(pretrained_state_dict, remove_prefixes)
-    
+
+    if disable_modules:
+        pretrained_state_dict = filter_state_dict(pretrained_state_dict, disable_modules)
+      
     info = model.load_state_dict(pretrained_state_dict, strict=strict)
     print_state_dict_info(info, model_name=model_name, max_levels=max_levels, verbose=verbose)
     

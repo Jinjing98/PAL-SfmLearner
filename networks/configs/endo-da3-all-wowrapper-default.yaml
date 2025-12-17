@@ -1,0 +1,62 @@
+__object__:
+  path: networks
+  name: EndoDepthAnything3Net
+  args: as_params
+
+# dino_resize_hw:
+  # - 224
+  # - 280
+# ref_view_strategy: "first"
+
+dino_resize_hw:
+ref_view_strategy: "saddle_balanced"
+
+net:
+  __object__:
+    path: networks
+    name: EndoDinoVisionTransformer
+    args: as_params
+  
+  # vit-Base setting up
+  ffn_layer: "mlp"
+  embed_dim: 768
+  depth: 12
+  num_heads: 12
+  mlp_ratio: 4.0
+  num_register_tokens: 0
+
+  alt_start: 4
+  qknorm_start: 4
+  rope_start: 4
+  cat_token: True
+  # used for extract DPT input for depth estimation
+  out_layers: [5, 7, 9, 11] # default in DA3
+  # out_layers: [8, 9, 10, 11] # endoDAC style
+
+head:
+  __object__:
+    path: depth_anything_3.model.dualdpt
+    name: DualDPT
+    args: as_params
+
+  dim_in: &head_dim_in 1536
+  output_dim: 2
+  features: &head_features 128
+  out_channels: &head_out_channels [96, 192, 384, 768]
+
+
+cam_enc:
+  __object__:
+    path: depth_anything_3.model.cam_enc
+    name: CameraEnc
+    args: as_params
+
+  dim_out: 768
+
+cam_dec:
+  __object__:
+    path: depth_anything_3.model.cam_dec
+    name: CameraDec
+    args: as_params
+
+  dim_in: 1536

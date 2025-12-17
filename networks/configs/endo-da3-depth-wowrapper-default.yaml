@@ -3,11 +3,13 @@ __object__:
   name: EndoDepthAnything3Net
   args: as_params
 
+# dino_resize_hw:
+  # - 224
+  # - 280
+# ref_view_strategy: "first"
+
 dino_resize_hw:
-  - 224
-  - 280
-ref_view_strategy: "first"
-# ref_view_strategy: "saddle_balanced"
+ref_view_strategy: "saddle_balanced"
 
 net:
   __object__:
