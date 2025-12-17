@@ -45,6 +45,10 @@ net:
   # residual_block_indexes: [4, 6, 8, 10] 
   residual_block_indexes: []
 
+  # dino_resize_hw: actual input image size after resizing (used for residual block patch dimensions)
+  # If not specified, falls back to img_size
+  dino_resize_hw: [224, 280]
+
 
 head:
   __object__:

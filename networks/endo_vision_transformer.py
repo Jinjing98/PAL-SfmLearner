@@ -127,6 +127,7 @@ class EndoDinoVisionTransformer(nn.Module):
         residual_block_indexes=[],
         res_conv_kernel_size=3,
         res_conv_padding=1,
+        dino_resize_hw=(224, 280),
     ):
         """
         Args:
@@ -190,6 +191,10 @@ class EndoDinoVisionTransformer(nn.Module):
 
         self.res_conv_kernel_size = res_conv_kernel_size
         self.res_conv_padding = res_conv_padding
+        
+        # Parse dino_resize_hw: convert list to tuple, or use img_size as fallback
+        self.dino_resize_hw = tuple(dino_resize_hw)
+
         self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
         if self.alt_start != -1:
             self.camera_token = nn.Parameter(torch.randn(1, 2, embed_dim))
@@ -262,8 +267,7 @@ class EndoDinoVisionTransformer(nn.Module):
                     res_conv_kernel_size=res_conv_kernel_size,
                     res_conv_padding=res_conv_padding,
                     patch_size=patch_size,
-                    # input_img_size=(img_size, img_size),
-                    input_img_size=(224, 280),
+                    input_img_size=self.dino_resize_hw,
                 )
             else:
                 # Use original block_fn if no residual blocks needed
@@ -289,6 +293,7 @@ class EndoDinoVisionTransformer(nn.Module):
         self.norm = norm_layer(embed_dim)
 
     def forward(self, x, **kwargs):
+        assert x.shape[-2:] == self.dino_resize_hw, "input size must be the same as dino_resize_hw: {self.dino_resize_hw}"
         return self.get_intermediate_layers(x, **kwargs)
 
     def interpolate_pos_encoding(self, x, w, h):
