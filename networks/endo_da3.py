@@ -42,6 +42,11 @@ from depth_anything_3.utils.ray_utils import get_extrinsic_from_camray
 
 from utils import load_pretrained_weights
 
+# Import LoRA modules
+from third_party.EndoDAC.models.backbones.mylora import Linear as LoraLinear
+from third_party.EndoDAC.models.backbones.mylora import DVLinear as DVLinear
+from third_party.EndoDAC.models.endodac.layers import mark_only_part_as_trainable
+
 def _wrap_cfg(cfg_obj):
     return OmegaConf.create(cfg_obj)
 
@@ -79,7 +84,9 @@ class EndoDepthAnything3Net(nn.Module):
 
     def __init__(self, net, head, cam_dec=None, cam_enc=None, gs_head=None, gs_adapter=None,
                  ref_view_strategy="saddle_balanced",
-                 dino_resize_hw=None):
+                 dino_resize_hw=None,
+                 lora_type="none",
+                 lora_r=4):
         """
         Initialize EndoDepthAnything3Net with given yaml-initialized configuration.
         
@@ -87,6 +94,8 @@ class EndoDepthAnything3Net(nn.Module):
             dino_resize_hw: Tuple of (height, width) to resize input images to before backbone.
                            If None, no resizing is performed. If not None, both h and w must be
                            divisible by PATCH_SIZE (14).
+            lora_type: Type of LoRA to apply. Options: "none", "lora", "dvlora". Default: "none"
+            lora_r: Rank of LoRA. Default: 4
         """
         super().__init__()
 
@@ -102,8 +111,18 @@ class EndoDepthAnything3Net(nn.Module):
                 f"dino_resize_hw width ({w}) must be divisible by PATCH_SIZE ({self.PATCH_SIZE})"
         
         self.dino_resize_hw = dino_resize_hw
+        
+        # LoRA configuration
+        assert lora_type in ["none", "lora", "dvlora"], f"Invalid lora_type: {lora_type}. Must be 'none', 'lora', or 'dvlora'"
+        assert lora_r > 0, "lora_r must be greater than 0"
+        self.lora_type = lora_type
+        self.lora_r = lora_r
 
         self.backbone = net if isinstance(net, nn.Module) else create_object(_wrap_cfg(net))
+        
+        # Apply LoRA to backbone if specified
+        if self.lora_type != "none":
+            self._apply_lora_to_backbone()
         self.head = head if isinstance(head, nn.Module) else create_object(_wrap_cfg(head))
         self.cam_dec, self.cam_enc = None, None
         if cam_dec is not None:
@@ -131,6 +150,52 @@ class EndoDepthAnything3Net(nn.Module):
                     gs_head["output_dim"] == gs_out_dim
                 ), f"gs_head output_dim should set to {gs_out_dim}, got {gs_head['output_dim']}"
                 self.gs_head = create_object(_wrap_cfg(gs_head))
+        
+        # Mark only LoRA parameters as trainable if LoRA is enabled
+        if self.lora_type != "none":
+            # only mark the LoRA parameters as trainable
+            # dvlora: warm up, lora_A, lora_B, lora_U, lora_V, residual_, conv_depth_
+            # lora: warm up, lora_A, lora_B, residual_, conv_depth_
+            mark_only_part_as_trainable(self.backbone)
+
+    def _apply_lora_to_backbone(self):
+        """
+        Apply LoRA to the MLP layers in the backbone transformer blocks.
+        Following the pattern from endodac.py
+        """
+        if not hasattr(self.backbone, 'blocks'):
+            # If backbone doesn't have blocks attribute, it might be a different structure
+            # Try to find blocks recursively
+            for name, module in self.backbone.named_modules():
+                if hasattr(module, 'blocks') and isinstance(module.blocks, nn.ModuleList):
+                    # Found a module with blocks, apply LoRA to it
+                    for blk in module.blocks:
+                        if hasattr(blk, 'mlp') and hasattr(blk.mlp, 'fc1') and hasattr(blk.mlp, 'fc2'):
+                            self._apply_lora_to_block(blk)
+                    break
+        else:
+            # Standard case: backbone has blocks attribute
+            for blk in self.backbone.blocks:
+                if hasattr(blk, 'mlp') and hasattr(blk.mlp, 'fc1') and hasattr(blk.mlp, 'fc2'):
+                    self._apply_lora_to_block(blk)
+    
+    def _apply_lora_to_block(self, blk):
+        """
+        Apply LoRA to a single transformer block's MLP layers.
+        
+        Args:
+            blk: Transformer block with mlp attribute containing fc1 and fc2
+        """
+        mlp_in_features = blk.mlp.fc1.in_features
+        mlp_hidden_features = blk.mlp.fc1.out_features
+        mlp_out_features = blk.mlp.fc2.out_features
+        
+        if self.lora_type == "dvlora":
+            blk.mlp.fc1 = DVLinear(mlp_in_features, mlp_hidden_features, r=self.lora_r, lora_alpha=self.lora_r)
+            blk.mlp.fc2 = DVLinear(mlp_hidden_features, mlp_out_features, r=self.lora_r, lora_alpha=self.lora_r)
+        elif self.lora_type == "lora":
+            blk.mlp.fc1 = LoraLinear(mlp_in_features, mlp_hidden_features, r=self.lora_r)
+            blk.mlp.fc2 = LoraLinear(mlp_hidden_features, mlp_out_features, r=self.lora_r)
 
     def forward(
         self,
@@ -360,8 +425,10 @@ class EndoCameraDec(nn.Module):
         super().__init__()
         # Rotation dimension mapping
         rot_dims = {
-            "angle_axis": 3, "euler": 3, "quat": 3,
-            "quat_xyzw": 4, "quat_wxyz": 4,
+            "angle_axis": 3, "euler": 3, 
+            "quat": 3, # estimate xyz, then obtain w based on the norm
+            "quat_xyzw": 4, #default in da3 
+            "quat_wxyz": 4,
             "6D": 6, "9D": 9
         }
         
@@ -484,10 +551,11 @@ if __name__ == "__main__":
             model=Model,
             pretrained_model=model_pretrained,
             model_name="Model",
-            # remove_prefixes=["model.", "pretrained."],
-            disable_modules=["cam_dec", "cam_enc"],
+            remove_prefixes=["model.", "pretrained."],
+            # disable_modules=["cam_dec", "cam_enc"],
             strict=False,
             max_levels=3,
+            # max_levels=6,# show lora param
             verbose=False
         )
         if load_infer_wrapper:

@@ -3,6 +3,13 @@ __object__:
   name: EndoDepthAnything3Net
   args: as_params
 
+# LoRA configuration
+# lora_type: "lora"
+lora_type: "dvlora"
+# lora_type: "none"
+lora_r: 4
+# residual_block_indexes: [2, 5, 8, 11]
+
 dino_resize_hw:
   - 224
   - 280
