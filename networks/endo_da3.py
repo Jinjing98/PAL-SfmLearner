@@ -393,7 +393,7 @@ class EndoDepthAnything3Net(nn.Module):
             rot_representation = self.cam_dec.rot_representation if hasattr(self.cam_dec, 'rot_representation') else "quat_xyzw"
             c2w, ixt = pose_encoding_to_extri_intri_v2(pose_enc, (H, W), 
                                                         rot_representation=rot_representation)
-            output.extrinsics = affine_inverse(c2w)
+            output.extrinsics = affine_inverse(c2w) # c2w -> w2c
             output.intrinsics = ixt
 
         return output
