@@ -24,6 +24,15 @@ import third_party.EndoDAC.models.endodac as endodac
 from utils.util import readlines, disp_to_depth
 from utils.metrics import compute_depth_errors
 
+import sys
+from pathlib import Path
+
+import torchvision
+
+ROOT = Path(__file__).resolve().parents[0]
+sys.path.insert(0, str(ROOT / "third_party/depth_anything_3/src"))
+from depth_anything_3.api import DepthAnything3
+
 cv2.setNumThreads(0)  # This speeds up evaluation 5x on our unix systems (OpenCV 3.3.1)
 
 
@@ -57,14 +66,16 @@ def evaluate(opt):
         "Please choose mono or stereo evaluation by setting either --eval_mono or --eval_stereo"
 
     if opt.ext_disp_to_eval is None:
-        if not opt.model_type == 'depthanything':
+        if opt.model_type in ['endodac', 'afsfm']:
             opt.load_weights_folder = os.path.expanduser(opt.load_weights_folder)
             assert os.path.isdir(opt.load_weights_folder), \
                 "Cannot find a folder at {}".format(opt.load_weights_folder)
 
             print("-> Loading weights from {}".format(opt.load_weights_folder))
+        elif opt.model_type == 'depthanything3':
+            print("Evaluating Depth Anything 3 model")
         else:
-            print("Evaluating Depth Anything model")
+            assert False, f"Invalid model type: {opt.model_type}"
 
         if opt.model_type == 'endodac':
             depther_path = os.path.join(opt.load_weights_folder, "depth_model.pth")
@@ -75,7 +86,7 @@ def evaluate(opt):
             encoder_dict = torch.load(encoder_path)
 
         if opt.eval_split == 'endovis':
-            filenames = readlines(os.path.join(splits_dir, opt.eval_split, "test_files.txt"))
+            filenames = readlines(os.path.join(splits_dir, opt.eval_split, opt.test_data_file))
             dataset = datasets.SCAREDRAWDataset(opt.data_path, filenames,
                                             opt.height, opt.width,
                                             [0], 4, is_train=False,
@@ -101,6 +112,11 @@ def evaluate(opt):
             depther.load_state_dict({k: v for k, v in depther_dict.items() if k in model_dict})
             depther.cuda()
             depther.eval()
+        elif opt.model_type == 'depthanything3':
+            # Load model from Hugging Face Hub
+            depther = DepthAnything3.from_pretrained("depth-anything/da3-base")
+            depther.cuda()
+            depther.eval()
         elif opt.model_type == 'afsfm':
             encoder = encoders.ResnetEncoder(opt.num_layers, False)
             depth_decoder = decoders.DepthDecoder(encoder.num_ch_enc, scales=range(4))
@@ -116,7 +132,8 @@ def evaluate(opt):
         print("-> Loading predictions from {}".format(opt.ext_disp_to_eval))
         pred_disps = np.load(opt.ext_disp_to_eval)
         if opt.eval_split == 'endovis':
-            filenames = readlines(os.path.join(splits_dir, opt.eval_split, "test_files.txt"))
+            filenames = readlines(os.path.join(splits_dir, opt.eval_split, opt.test_data_file))
+            # filenames = readlines(os.path.join(splits_dir, opt.eval_split, "test_files.txt"))
             dataset = datasets.SCAREDRAWDataset(opt.data_path, filenames,
                                             opt.height, opt.width,
                                             [0], 4, is_train=False)
@@ -157,14 +174,32 @@ def evaluate(opt):
                 input_color = torch.cat((input_color, torch.flip(input_color, [3])), 0)
 
             if opt.ext_disp_to_eval is None:
-                time_start = time.time()
-                output = depther(input_color)
-                inference_time = time.time() - time_start
                 if opt.model_type == 'endodac' or opt.model_type == 'afsfm':
+                    time_start = time.time()
+                    output = depther(input_color)
+                    inference_time = time.time() - time_start
                     output_disp = output[("disp", 0)]
-                pred_disp, _ = disp_to_depth(output_disp, opt.min_depth, opt.max_depth)
-                pred_disp = pred_disp.cpu()[:, 0].numpy()
-                pred_disp = pred_disp[0]
+                    pred_disp, _ = disp_to_depth(output_disp, opt.min_depth, opt.max_depth)
+                    pred_disp = pred_disp.cpu()[:, 0].numpy()
+                    pred_disp = pred_disp[0]
+                elif opt.model_type == 'depthanything3':
+                    # convert torch tensor image to pil format
+                    input_color = data[("color", 0, 0)].cuda()
+                    # convert torch tensor image to pil format as inference requires
+                    input_color_pil = torchvision.transforms.ToPILImage()(input_color.squeeze(0))
+                    images = [input_color_pil, input_color_pil]  # List of image paths, PIL Images, or numpy arrays
+                    time_start = time.time()
+                    prediction = depther.inference(
+                        images,
+                        process_res=280, # 256,320 -> 224,280
+                        process_res_method="upper_bound_resize"
+                        # export_dir="output",
+                        # export_format="glb"  # Options: glb, npz, ply, mini_npz, gs_ply, gs_video
+                    )# already in numpy array format
+                    inference_time = time.time() - time_start
+                    pred_depth = prediction.depth.squeeze()[0].squeeze()# only get the 1st frame considering both frames equal
+                else:
+                    raise ValueError(f"Invalid model type: {opt.model_type}")
             else:
                 pred_disp = pred_disps[i]
                 inference_time = 1
@@ -179,8 +214,17 @@ def evaluate(opt):
                 gt_depth = data["depth_gt"].squeeze().numpy()
 
             gt_height, gt_width = gt_depth.shape[:2]
-            pred_disp = cv2.resize(pred_disp, (gt_width, gt_height))
-            pred_depth = 1/pred_disp
+            if opt.model_type == 'depthanything3':
+                # print('pred_depth shape:')
+                # print(pred_depth.shape, pred_depth.min(), pred_depth.max())
+                pred_depth = cv2.resize(pred_depth, (gt_width, gt_height))
+                # print('resized pred_depth shape:')
+                # print(pred_depth.shape, pred_depth.min(), pred_depth.max())
+            elif opt.model_type == 'endodac' or opt.model_type == 'afsfm':
+                pred_disp = cv2.resize(pred_disp, (gt_width, gt_height))
+                pred_depth = 1/pred_disp
+            else:
+                raise ValueError(f"Invalid model type: {opt.model_type}")
             mask = np.logical_and(gt_depth > MIN_DEPTH, gt_depth < MAX_DEPTH)
             
             # if opt.visualize_depth:
