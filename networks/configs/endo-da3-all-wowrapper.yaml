@@ -4,8 +4,8 @@ __object__:
   args: as_params
 
 # LoRA configuration
-# lora_type: "lora"
-lora_type: "dvlora"
+lora_type: "lora"
+# lora_type: "dvlora"
 # lora_type: "none"
 lora_r: 4
 # residual_block_indexes: [2, 5, 8, 11]
@@ -74,6 +74,6 @@ cam_dec:
   rot_representation: "quat_xyzw"
   # rot_representation: "9D"
   # rot_representation: "angle_axis"
-  rot_scale_factor: 1.0
-  trans_scale_factor: 1.0
+  rot_scale_factor: 0.01
+  trans_scale_factor: 0.01
   explicit_bias_init_6d9d: True

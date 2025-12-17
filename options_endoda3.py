@@ -40,11 +40,11 @@ class MonodepthOptions:
                                  help="size of pretrained Dinov2 backbone",
                                  choices=["small", "base", "large", "giant"],
                                  default="base")
-        self.parser.add_argument("--lora_type",
-                                 type=str,
-                                 help="which lora type use for the model",
-                                 choices=["lora", "dvlora", "none"],
-                                 default="dvlora")
+     #    self.parser.add_argument("--lora_type",
+     #                             type=str,
+     #                             help="which lora type use for the model",
+     #                             choices=["lora", "dvlora", "none"],
+     #                             default="dvlora")
         self.parser.add_argument("--lora_rank",
                                  type=int,
                                  help="the rank of lora",

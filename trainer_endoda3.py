@@ -6,6 +6,7 @@ import datasets
  
 
 from third_party.EndoDAC.models.endodac import endodac, mark_only_part_as_trainable
+from networks.endo_da3 import mark_only_part_as_trainable_v2
 from third_party.EndoDAC.models.encoders import ResnetEncoder
 from third_party.EndoDAC.models.decoders import PositionDecoder, TransformDecoder, DepthDecoder
 from third_party.EndoDAC.models.decoders import IntrinsicsHead, PoseCNN
@@ -341,11 +342,16 @@ class Trainer:
         for name, param in self.models["depth_model"].named_parameters():
             if "seed_" not in name:
                 param.requires_grad = True
-        if self.step < self.opt.warm_up_step:
-            warm_up = True
-        else:
-            warm_up = False
-        mark_only_part_as_trainable(self.models["depth_model"], warm_up=warm_up)
+
+        if self.models["depth_model"].lora_type != "none":        
+            if self.step < self.opt.warm_up_step:
+                warm_up = True
+            else:
+                warm_up = False
+            mark_only_part_as_trainable_v2(self.models["depth_model"], 
+                                            warm_up=warm_up,
+                                            other_trainable=["residual_", "conv_depth_"])
+
         for param in self.models["pose_encoder"].parameters():
             param.requires_grad = True
         for param in self.models["pose"].parameters():

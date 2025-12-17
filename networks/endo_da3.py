@@ -45,10 +45,68 @@ from utils import load_pretrained_weights
 # Import LoRA modules
 from third_party.EndoDAC.models.backbones.mylora import Linear as LoraLinear
 from third_party.EndoDAC.models.backbones.mylora import DVLinear as DVLinear
-from third_party.EndoDAC.models.endodac.layers import mark_only_part_as_trainable
+from third_party.EndoDAC.models.backbones.galora import LoRALayer
 
 def _wrap_cfg(cfg_obj):
     return OmegaConf.create(cfg_obj)
+
+
+def mark_only_part_as_trainable_v2(
+    model: nn.Module, 
+    bias: str = 'none', 
+    warm_up: bool = True,
+    other_trainable: list = None
+) -> None:
+    """
+    Mark only LoRA parameters and other specified parameters as trainable.
+    
+    Args:
+        model: The model to mark parameters for
+        bias: Bias handling mode ('none', 'all', 'lora_only')
+        warm_up: If True, mark lora_A and lora_B as trainable (for warm-up phase).
+                 If False, mark lora_U and lora_V as trainable (for fine-tuning phase).
+        other_trainable: List of parameter name substrings that should remain trainable.
+                        Default: ['residual_', 'conv_depth_']
+    """
+    if other_trainable is None:
+        other_trainable = ['residual_', 'conv_depth_']
+    
+    for n, p in model.named_parameters():
+        # Check if parameter name contains any of the trainable substrings
+        is_trainable = False
+        
+        if warm_up:
+            # Warm-up phase: lora_A and lora_B are trainable
+            if 'lora_A' in n or 'lora_B' in n:
+                is_trainable = True
+        else:
+            # Fine-tuning phase: lora_U and lora_V are trainable
+            if 'lora_U' in n or 'lora_V' in n:
+                is_trainable = True
+        
+        # Check if parameter name contains any of the other_trainable substrings
+        for trainable_substring in other_trainable:
+            if trainable_substring in n:
+                is_trainable = True
+                break
+        
+        if not is_trainable:
+            p.requires_grad = False
+    
+    if bias == 'none':
+        return
+    elif bias == 'all':
+        for n, p in model.named_parameters():
+            if 'bias' in n:
+                p.requires_grad = True
+    elif bias == 'lora_only':
+        for m in model.modules():
+            if isinstance(m, LoRALayer) and \
+                hasattr(m, 'bias') and \
+                m.bias is not None:
+                    m.bias.requires_grad = True
+    else:
+        raise NotImplementedError
 
 
 
@@ -85,7 +143,7 @@ class EndoDepthAnything3Net(nn.Module):
     def __init__(self, net, head, cam_dec=None, cam_enc=None, gs_head=None, gs_adapter=None,
                  ref_view_strategy="saddle_balanced",
                  dino_resize_hw=None,
-                 lora_type="none",
+                 lora_type="lora",
                  lora_r=4):
         """
         Initialize EndoDepthAnything3Net with given yaml-initialized configuration.
@@ -151,12 +209,12 @@ class EndoDepthAnything3Net(nn.Module):
                 ), f"gs_head output_dim should set to {gs_out_dim}, got {gs_head['output_dim']}"
                 self.gs_head = create_object(_wrap_cfg(gs_head))
         
-        # Mark only LoRA parameters as trainable if LoRA is enabled
-        if self.lora_type != "none":
-            # only mark the LoRA parameters as trainable
-            # dvlora: warm up, lora_A, lora_B, lora_U, lora_V, residual_, conv_depth_
-            # lora: warm up, lora_A, lora_B, residual_, conv_depth_
-            mark_only_part_as_trainable(self.backbone)
+        # # Mark only LoRA parameters as trainable if LoRA is enabled
+        # if self.lora_type != "none":
+        #     # only mark the LoRA parameters as trainable
+        #     # dvlora: warm up, lora_A, lora_B, lora_U, lora_V, residual_, conv_depth_
+        #     # lora: warm up, lora_A, lora_B, residual_, conv_depth_
+        #     mark_only_part_as_trainable_v2(self.backbone)
 
     def _apply_lora_to_backbone(self):
         """
@@ -418,95 +476,6 @@ class EndoDepthAnything3Net(nn.Module):
         return aux_features
 
 
-class EndoCameraDec(nn.Module):
-    def __init__(self, dim_in=1536, rot_representation="quat_xyzw", 
-                 rot_scale_factor=1.0, trans_scale_factor=1.0,
-                 explicit_bias_init_6d9d=True):
-        super().__init__()
-        # Rotation dimension mapping
-        rot_dims = {
-            "angle_axis": 3, "euler": 3, 
-            "quat": 3, # estimate xyz, then obtain w based on the norm
-            "quat_xyzw": 4, #default in da3 
-            "quat_wxyz": 4,
-            "6D": 6, "9D": 9
-        }
-        
-        if rot_representation not in rot_dims:
-            raise ValueError(
-                f"Unsupported rotation representation: {rot_representation}. "
-                f"Supported: {', '.join(rot_dims.keys())}"
-            )
-        
-        self.rot_representation = rot_representation
-        self.rot_scale_factor = rot_scale_factor
-        self.trans_scale_factor = trans_scale_factor
-        self.explicit_bias_init_6d9d = explicit_bias_init_6d9d
-        rot_dim = rot_dims[rot_representation]
-        
-        output_dim = dim_in
-        self.backbone = nn.Sequential(
-            nn.Linear(output_dim, output_dim),
-            nn.ReLU(),
-            nn.Linear(output_dim, output_dim),
-            nn.ReLU(),
-        )
-        self.fc_t = nn.Linear(output_dim, 3)
-        self.fc_qvec = nn.Linear(output_dim, rot_dim)
-        self.fc_fov = nn.Sequential(nn.Linear(output_dim, 2), nn.ReLU())
-        
-        # Apply Special Init on self.fc_qvec if 6D/9D and flag is enabled
-        if self.explicit_bias_init_6d9d and self.rot_representation in ["6D", "9D"]:
-            # Initialize bias with Identity rotation matrix
-            if self.rot_representation == "6D":
-                # 6D representation: Identity matrix [1,0,0, 0,1,0] flattened
-                bias_rot = torch.tensor([1.0, 0.0, 0.0, 0.0, 1.0, 0.0])
-            elif self.rot_representation == "9D":
-                # 9D representation: Identity matrix [1,0,0, 0,1,0, 0,0,1] flattened
-                bias_rot = torch.tensor([1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0])
-            # Initialize bias (note: device will be set when model is moved to device)
-            with torch.no_grad():
-                self.fc_qvec.bias.copy_(bias_rot)
-
-    def forward(self, feat, camera_encoding=None, *args, **kwargs):
-        B, N = feat.shape[:2]
-        feat = feat.reshape(B * N, -1)
-        feat = self.backbone(feat)
-        
-        # Apply scale factors to translation and rotation
-        out_t = self.trans_scale_factor * self.fc_t(feat.float()).reshape(B, N, 3)
-        
-        if camera_encoding is None:
-            out_rot_raw = self.fc_qvec(feat.float()).reshape(B, N, -1)
-            
-            # Apply special scaling for 6D/9D with explicit_bias_init_6d9d
-            if self.explicit_bias_init_6d9d and self.rot_representation == "6D":
-                out_rot = out_rot_raw.clone()
-                # scale the r2,r3,r4,r6 by rot_scale_factor
-                out_rot[..., 1:4] *= self.rot_scale_factor
-                out_rot[..., 5] *= self.rot_scale_factor
-            elif self.explicit_bias_init_6d9d and self.rot_representation == "9D":
-                out_rot = out_rot_raw.clone()
-                # scale the r2,r3,r4, r6,r7,r8 by rot_scale_factor
-                out_rot[..., 1:4] *= self.rot_scale_factor
-                out_rot[..., 5:8] *= self.rot_scale_factor
-            else:
-                # naive mul: scale all rotation components by rot_scale_factor
-                out_rot = self.rot_scale_factor * out_rot_raw
-            
-            out_fov = self.fc_fov(feat.float()).reshape(B, N, 2)
-        else:
-            # Extract rotation and fov from camera_encoding
-            # Format: [T(3), rotation(M), fov_h(1), fov_w(1)]
-            # Get rotation dimension from the model's expected dimension
-            rot_dim = self.fc_qvec.out_features
-            out_rot = camera_encoding[..., 3:3+rot_dim]
-            out_fov = camera_encoding[..., -2:]
-        
-        pose_enc = torch.cat([out_t, out_rot, out_fov], dim=-1)
-        return pose_enc
-
-
 if __name__ == "__main__":
     # net = EndoDepthAnything3Net(net="endo-da3-base.yaml", head="endo-da3-base.yaml", cam_dec="endo-da3-base.yaml", cam_enc="endo-da3-base.yaml", gs_head="endo-da3-base.yaml", gs_adapter="endo-da3-base.yaml")
     # print(net)
@@ -552,7 +521,7 @@ if __name__ == "__main__":
             pretrained_model=model_pretrained,
             model_name="Model",
             remove_prefixes=["model.", "pretrained."],
-            # disable_modules=["cam_dec", "cam_enc"],
+            disable_modules=["cam_dec"] if Model.cam_dec.rot_representation!="quat_xyzw" else [],
             strict=False,
             max_levels=3,
             # max_levels=6,# show lora param

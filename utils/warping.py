@@ -417,23 +417,28 @@ def pose_encoding_to_extri_intri_v2(
     fov_w = pose_encoding[..., -1]
     
     # Convert rotation to matrix
-    if rot_representation == "angle_axis":
-        original_shape = rot.shape[:-1]
-        R_4x4 = rot_from_axisangle(rot.reshape(-1, 1, 3))
-        R = R_4x4[:, :3, :3].reshape(*original_shape, 3, 3)
-    elif rot_representation == "euler":
-        R = rot_from_euler(rot)
-    elif rot_representation == "quat":
-        R = rot_from_quat(rot)
-    elif rot_representation == "quat_xyzw":
+    # Cases that can be used directly (handle arbitrary shapes)
+    if rot_representation == "quat_xyzw":
         R = rot_from_quat_xyzw(rot)
     elif rot_representation == "quat_wxyz":
         R = rot_from_quat_wxyz(rot)
-    elif rot_representation == "6D":
-        R = rot_from_6d(rot)
-    elif rot_representation == "9D":
+    # Cases that need reshaping (functions expect specific input shapes)
+    else:
         original_shape = rot.shape[:-1]
-        R_flat = rot_from_9d(rot.reshape(-1, 1, 9))
+        # Reshape input and call function, then reshape output back
+        if rot_representation == "angle_axis":
+            R_flat = rot_from_axisangle(rot.reshape(-1, 1, 3))[:, :3, :3]
+        elif rot_representation == "euler":
+            R_flat = rot_from_euler(rot.reshape(-1, 3))
+        elif rot_representation == "quat":
+            R_flat = rot_from_quat(rot.reshape(-1, 3))
+        elif rot_representation == "6D":
+            R_flat = rot_from_6d(rot.reshape(-1, 1, 6))
+        elif rot_representation == "9D":
+            R_flat = rot_from_9d(rot.reshape(-1, 1, 9))
+        else:
+            raise ValueError(f"Unsupported rotation representation: {rot_representation}")
+        # Shared reshape back to original shape
         R = R_flat.reshape(*original_shape, 3, 3)
 
     extrinsics = torch.cat([R, T[..., None]], dim=-1)
