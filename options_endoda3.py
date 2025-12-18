@@ -45,29 +45,29 @@ class MonodepthOptions:
      #                             help="which lora type use for the model",
      #                             choices=["lora", "dvlora", "none"],
      #                             default="dvlora")
-        self.parser.add_argument("--lora_rank",
-                                 type=int,
-                                 help="the rank of lora",
-                                 default=4)
+     #    self.parser.add_argument("--lora_rank",
+     #                             type=int,
+     #                             help="the rank of lora",
+     #                             default=4)
         self.parser.add_argument("--warm_up_step",
                                  type=int,
                                  help="warm up step",
                                  default=20000)
-        self.parser.add_argument("--residual_block_indexes",
-                                 nargs="*",
-                                 type=int,
-                                 help="indexes for residual blocks in vitendodepth encoder",
-                                 default=[2,5,8,11])
-        self.parser.add_argument("--include_cls_token",
-                                 type=str2bool,
-                                 help="includes the cls token in the transformer blocks",
-                                 default=True)
+     #    self.parser.add_argument("--residual_block_indexes",
+     #                             nargs="*",
+     #                             type=int,
+     #                             help="indexes for residual blocks in vitendodepth encoder",
+     #                             default=[2,5,8,11])
+     #    self.parser.add_argument("--include_cls_token",
+     #                             type=str2bool,
+     #                             help="includes the cls token in the transformer blocks",
+     #                             default=True)
         self.parser.add_argument("--learn_intrinsics",
                                  type=str2bool,
                                  help="learn the camera intrinsics with a seperate decoder",
                                  default=True)
 
-        # Depth model options
+        # DA3 model options
         self.parser.add_argument("--depth_model_config",
                                  type=str,
                                  help="path to depth model config file (YAML)",
@@ -380,4 +380,16 @@ class MonodepthOptions:
                                  default=None)
     def parse(self):
         self.options = self.parser.parse_args()
+        return self.options
+    
+    def parse_notebook(self, args):
+        """Parse arguments from a list (for notebook use)
+        
+        Args:
+            args: List of argument strings (e.g., ['--batch_size', '2', '--num_workers', '1'])
+        
+        Returns:
+            Parsed options object
+        """
+        self.options = self.parser.parse_args(args)
         return self.options

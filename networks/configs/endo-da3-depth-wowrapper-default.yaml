@@ -1,15 +1,25 @@
+# DPT DEPTH: B S H W 1; 
+# DPT depth_Conf: B S H W 
+
+# DualDPT DEPTH: B S H W;
+# DualDPT depth_Conf: B S H W;
+# DualDPT RAY: B S H W 6;
+# DualDPT RAY_CONF: B S H W ;
+# extrinsics: B S 3 4 ;
+# intrinsics: B S 3 3 ;
+
 __object__:
   path: networks
   name: EndoDepthAnything3Net
   args: as_params
 
-# dino_resize_hw:
-  # - 224
-  # - 280
-# ref_view_strategy: "first"
-
 dino_resize_hw:
-ref_view_strategy: "saddle_balanced"
+  - 224
+  - 280
+ref_view_strategy: "first"
+
+# dino_resize_hw:
+# ref_view_strategy: "saddle_balanced"
 
 net:
   __object__:
@@ -34,36 +44,36 @@ net:
   out_layers: [5, 7, 9, 11] # default in DA3
   # out_layers: [8, 9, 10, 11] # endoDAC style
 
-# head:
-#   __object__:
-#     path: depth_anything_3.model.dualdpt
-#     name: DualDPT
-#     args: as_params
-
-#   dim_in: &head_dim_in 1536
-#   output_dim: 2
-#   features: &head_features 128
-#   out_channels: &head_out_channels [96, 192, 384, 768]
-
-# dpt head
 head:
   __object__:
-    path: depth_anything_3.model.dpt #depth_anything_3.model.dualdpt
-    name: DPT #DualDPT
+    path: depth_anything_3.model.dualdpt
+    name: DualDPT
     args: as_params
 
-  # below param setting enables loading depth_dpt from pretrained dualDPT
   dim_in: &head_dim_in 1536
   output_dim: 2
-  norm_type: "layer"
-  pos_embed: True
-
-  # below param enable train naive depth-only DPT from scratch
-  # dim_in: &head_dim_in 768 # as cat_token is False
-  # norm_type: "idt"
-  # pos_embed: False
-
   features: &head_features 128
   out_channels: &head_out_channels [96, 192, 384, 768]
-  use_sky_head: False
+
+# # dpt head
+# head:
+#   __object__:
+#     path: depth_anything_3.model.dpt #depth_anything_3.model.dualdpt
+#     name: DPT #DualDPT
+#     args: as_params
+
+#   # below param setting enables loading depth_dpt from pretrained dualDPT
+#   dim_in: &head_dim_in 1536
+#   output_dim: 2
+#   norm_type: "layer"
+#   pos_embed: True
+
+#   # below param enable train naive depth-only DPT from scratch
+#   # dim_in: &head_dim_in 768 # as cat_token is False
+#   # norm_type: "idt"
+#   # pos_embed: False
+
+#   features: &head_features 128
+#   out_channels: &head_out_channels [96, 192, 384, 768]
+#   use_sky_head: False
 

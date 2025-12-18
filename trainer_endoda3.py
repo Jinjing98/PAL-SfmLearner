@@ -14,6 +14,8 @@ sys.path.insert(0, str(ROOT / "third_party/depth_anything_3/src"))
 from networks.endo_da3 import mark_only_part_as_trainable_v2, EndoDepthAnything3Net
 from depth_anything_3.cfg import create_object, load_config
 from depth_anything_3.api import DepthAnything3
+from depth_anything_3.model.dualdpt import DualDPT
+from depth_anything_3.model.dpt import DPT
 from utils import load_pretrained_weights
 from third_party.EndoDAC.models.encoders import ResnetEncoder
 from third_party.EndoDAC.models.decoders import PositionDecoder, TransformDecoder, DepthDecoder
@@ -74,38 +76,58 @@ class EndoDepthAnything3NetWrapper(torch.nn.Module):
         """
         single_frame_input = True
         if x.dim() == 4:
-            # Convert single frame input (B, 3, H, W) to (B, 1, 3, H, W) for EndoDepthAnything3Net
+            # Convert single frame input (B, 3, H, W) to (B, S, 3, H, W) for EndoDepthAnything3Net
             B, C, H, W = x.shape
-            x_mv = x.unsqueeze(1)  # (B, 1, 3, H, W)
+            x_mv = x.unsqueeze(1)  # (B, S, 3, H, W), S==1
         else:
             single_frame_input = False
             # multi-frame input (B, S, 3, H, W)
             assert x.dim() == 5, f"x shape: {x.shape}"
             B, S, C, H, W = x.shape
-            assert C == 3, f"C shape: {C}"
             x_mv = x
+        assert C == 3, f"C shape: {C}"
         # Forward through EndoDepthAnything3Net
+        # DPT DEPTH: B S H W 1; 
+        # DPT depth_Conf: B S H W 
+
+        # DualDPT DEPTH: B S H W;
+        # DualDPT depth_Conf: B S H W;
+        # DualDPT RAY: B S H W 6;
+        # DualDPT RAY_CONF: B S H W ;
+        # extrinsics: B S 3 4 ;
+        # intrinsics: B S 3 3 ;
+
+        # output is a dict
         output = self.model(x_mv, extrinsics=None, intrinsics=None, 
                            export_feat_layers=[], infer_gs=False, use_ray_pose=False)
-        
+        # Depth output: (B, S, H, W) if  DualDPT Head
+        # Depth output: (B, S, H, W, 1) if DPT Head
+        if isinstance(self.model.head, DPT):
+            # update the dict
+            # B,S,H,W,1 -> B,S,H,W
+            output.depth = output.depth.squeeze(-1)
+
+        depth = output.depth # extract key
+
+        assert depth.dim() == 4, f"depth shape: {depth.shape}"
+        assert depth.shape[1] == 1, f"depth shape: {depth.shape}"  
+
         # Extract depth: output.depth is (B, S, H, W) where S=1 for monocular
         # print(f"depth shape: {output.depth.shape}")
         # print(f"conf shape: {output.depth_conf.shape}")
         # print(f"extrinsics shape: {output.extrinsics.shape}")
         # print(f"intrinsics shape: {output.intrinsics.shape}")
         
-        # extract depth estimates from output: (B, S, H, W)
-        depth = output.depth 
+ 
 
         depth_clamped = torch.clamp(depth, min=self.min_depth, max=self.max_depth)
         disp = 1.0 / depth_clamped # (B, S, H, W)
-        
+     
         # Interpolate to match input image size if needed
-        if depth.shape[-2:] != (256, 320):
+        if disp.shape[-2:] != (256, 320):
             disp = F.interpolate(disp, size=(256, 320), mode="bilinear", align_corners=True)
 
-        assert disp.dim() == 4, f"disp shape: {disp.shape}"
-        assert disp.shape[1] == 1, f"disp shape: {disp.shape}"
+
 
         # Indrect create multi-scale outputs: not actually enable multi-resolution depth direcly from head 
         outputs = {}
@@ -122,6 +144,7 @@ class EndoDepthAnything3NetWrapper(torch.nn.Module):
                 outputs[("disp", scale)] = disp_scale
         
         if not single_frame_input:
+            assert 0, 'not tested'
             # fuse B and S to construct outputs dimension B_S, H, W
             # then format as the pipeline required dim 1 for channel
             # B S H W -> B*S 1 H W

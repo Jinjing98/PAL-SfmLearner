@@ -1,3 +1,13 @@
+# DPT DEPTH: B S H W 1; 
+# DPT depth_Conf: B S H W 
+
+# DualDPT DEPTH: B S H W;
+# DualDPT depth_Conf: B S H W;
+# DualDPT RAY: B S H W 6;
+# DualDPT RAY_CONF: B S H W ;
+# extrinsics: B S 3 4 ;
+# intrinsics: B S 3 3 ;
+
 __object__:
   path: networks
   name: EndoDepthAnything3Net

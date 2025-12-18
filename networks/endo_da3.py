@@ -143,7 +143,7 @@ class EndoDepthAnything3Net(nn.Module):
     def __init__(self, net, head, cam_dec=None, cam_enc=None, gs_head=None, gs_adapter=None,
                  ref_view_strategy="saddle_balanced",
                  dino_resize_hw=None,
-                 lora_type="lora",
+                 lora_type="none",
                  lora_r=4):
         """
         Initialize EndoDepthAnything3Net with given yaml-initialized configuration.
@@ -498,8 +498,9 @@ if __name__ == "__main__":
     # Set seed again before creating second model to ensure same initialization
     set_seed(42)
     
-    Model = create_object(load_config("networks/configs/endo-da3-depth-wowrapper.yaml"))
     Model = create_object(load_config("networks/configs/endo-da3-all-wowrapper.yaml"))
+    # Model = create_object(load_config("networks/configs/endo-da3-depth-wowrapper.yaml"))
+    # Model = create_object(load_config("networks/configs/endo-da3-depth-wowrapper-default.yaml"))
     Model.eval()
     Model.to("cuda")
 
@@ -515,13 +516,27 @@ if __name__ == "__main__":
     load_pretrained = True
     load_infer_wrapper = False
     if load_pretrained:
+
+        # DPT DEPTH: B S H W 1; 
+        # DPT depth_Conf: B S H W 
+
+        # DualDPT DEPTH: B S H W;
+        # DualDPT depth_Conf: B S H W;
+        # DualDPT RAY: B S H W 6;
+        # DualDPT RAY_CONF: B S H W ;
+        # extrinsics: B S 3 4 ;
+        # intrinsics: B S 3 3 ;
+
         # Load weights into Model (without wrapper - needs to remove both prefixes)
+        disable_modules = []
+        if hasattr(Model, 'cam_dec') and Model.cam_dec is not None:
+            disable_modules = ["cam_dec"] if Model.cam_dec.rot_representation!="quat_xyzw" else []
         load_pretrained_weights(
             model=Model,
             pretrained_model=model_pretrained,
             model_name="Model",
             remove_prefixes=["model.", "pretrained."],
-            disable_modules=["cam_dec"] if Model.cam_dec.rot_representation!="quat_xyzw" else [],
+            disable_modules=disable_modules,
             strict=False,
             max_levels=3,
             # max_levels=6,# show lora param
@@ -542,9 +557,9 @@ if __name__ == "__main__":
 
     # Test with same input
     set_seed(42)  # Set seed for input tensor too
-    input_imgs_tensor = torch.randn(1, 3, 3, 336, 504).to("cuda")
-    input_intrinsics_tensor = torch.randn(1, 3, 3, 3).to("cuda")
-    input_extrinsics_tensor = torch.randn(1, 3, 4, 4).to("cuda")
+    input_imgs_tensor = torch.randn(2, 3, 3, 336, 504).to("cuda")
+    input_intrinsics_tensor = torch.randn(2, 3, 3, 3).to("cuda")
+    input_extrinsics_tensor = torch.randn(2, 3, 4, 4).to("cuda")
 
     input_intrinsics_tensor = None
     input_extrinsics_tensor = None

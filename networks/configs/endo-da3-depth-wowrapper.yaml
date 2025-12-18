@@ -3,6 +3,11 @@ __object__:
   name: EndoDepthAnything3Net
   args: as_params
 
+lora_type: "lora"
+# lora_type: "dvlora"
+# lora_type: "none"
+lora_r: 4
+
 dino_resize_hw:
   - 224
   - 280
@@ -32,6 +37,12 @@ net:
   out_layers: [5, 7, 9, 11] # default in DA3
   # out_layers: [8, 9, 10, 11] # endoDAC style
 
+  residual_block_indexes: []
+
+  # dino_resize_hw: actual input image size after resizing (used for residual block patch dimensions)
+  # If not specified, falls back to img_size
+  dino_resize_hw: [224, 280]
+
 # head:
 #   __object__:
 #     path: depth_anything_3.model.dualdpt
@@ -43,7 +54,7 @@ net:
 #   features: &head_features 128
 #   out_channels: &head_out_channels [96, 192, 384, 768]
 
-# dpt head
+# dpt head: the output shape from the head differs from DualDPT Head: (B, S, H, W, 1) instead of (B, S, H, W)
 head:
   __object__:
     path: depth_anything_3.model.dpt #depth_anything_3.model.dualdpt

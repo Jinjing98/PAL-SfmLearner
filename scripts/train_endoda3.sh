@@ -75,7 +75,7 @@ CUDA_VISIBLE_DEVICES=0 python /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLear
 --batch_size 2 \
 --log_dir /mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm/endodac_dbg \
 --pretrained_path depth-anything/da3-base \
-# --depth_model_config /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/networks/configs/endo-da3-depth-wowrapper.yaml
+--depth_model_config /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/networks/configs/endo-da3-depth-wowrapper.yaml
 
 
 # --reproj_supervise_type color_warp \
