@@ -35,11 +35,11 @@ class MonodepthOptions:
                                  type=str,
                                  help="pretrained weights path; load with hf name.",
                                  default='depth-anything/da3-base')
-        self.parser.add_argument("--backbone_size",
-                                 type=str,
-                                 help="size of pretrained Dinov2 backbone",
-                                 choices=["small", "base", "large", "giant"],
-                                 default="base")
+     #    self.parser.add_argument("--backbone_size",
+     #                             type=str,
+     #                             help="size of pretrained Dinov2 backbone",
+     #                             choices=["small", "base", "large", "giant"],
+     #                             default="base")
      #    self.parser.add_argument("--lora_type",
      #                             type=str,
      #                             help="which lora type use for the model",
@@ -174,7 +174,7 @@ class MonodepthOptions:
                                  help="frames to load",
                                  default=[0, -1, 1])
         
-        # Pose Net setting
+        # Pose Net setting: we use the setting here if we use external pose net rather the sub_module cam_dec for endoDA3
         self.parser.add_argument("--trans_scale_factor",
                                  type=float,
                                  help="translation scale factor",

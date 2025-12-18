@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #SBATCH --job-name=end_pose
-#SBATCH --gpus=rtxa5000:1   # rtxa5000 p6000 rtx6000 a100 v100 # monst3r requires 48GB each, only a100 supports
+#SBATCH --gpus=v100:1   # rtxa5000 p6000 rtx6000 a100 v100 # monst3r requires 48GB each, only a100 supports
 #SBATCH --nodes=1  # several gpus on one node
 #SBATCH --ntasks-per-node=1 #used for multi gpu training
 #SBATCH --mem=48G #64G #35G#25G  # 20G may cause bus error?   # mem * num_GPUS
@@ -22,7 +22,6 @@
 CUDA_VISIBLE_DEVICES=0 python /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/train_endoda3.py \
 --data_path /mnt/nct-zfs/TCO-All/SharedDatasets/SCARED_Images_Resized/ \
 --num_workers 2 \
---num_epochs 30 \
 --num_epochs 20 \
 --batch_size 8 \
 --log_frequency 200 \
@@ -37,14 +36,8 @@ CUDA_VISIBLE_DEVICES=0 python /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLear
 --train_data_file train_files.txt \
 --val_data_file val_files.txt \
 --test_data_file test_files.txt \
---explicit_bias_init_6d9d \
---rot_representation 6D \
---rot_representation quat \
---rot_representation 9D \
---rot_representation euler \
---rot_representation angle_axis \
---backbone_size base \
---log_dir /mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm/endodac \
+--log_dir /mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm/endoDA3 \
+--pretrained_path depth-anything/da3-base \
 --exp_suffix full_endodacB_6D_baseline \
 --exp_suffix full_endodacB_angleaxis_GTrot \
 --exp_suffix full_endodacB_angleaxis_optmizedK \
@@ -60,23 +53,22 @@ CUDA_VISIBLE_DEVICES=0 python /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLear
 --exp_suffix d6_kf2_endodacB_angleaxis_baseline_warmUp5k \
 --exp_suffix d6_kf2_endodacB_angleaxis_baseline_gtK_intK_warmUp5k \
 --exp_suffix d6_kf2_endodacB_angleaxis_baseline_gtK_intK_warmUp5k_DA3 \
+--exp_suffix full_endoDA3B_DepthOnly_angleaxis_baseline_LorawarmUp40k_woRes_SingleScale \
+--warm_up_step 20000 \
 --warm_up_step 5000 \
---num_epochs 100 \
---train_data_file d6_kf2.txt \
---val_data_file d6_kf2.txt \
 --warm_up_step 40000 \
---warm_up_step 5000 \
---learn_intrinsics True \
---of_samples \
---of_samples_num 16 \
---save_frequency 1000 \
---log_frequency 1 \
---num_epochs 20 \
---batch_size 2 \
---log_dir /mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm/endodac_dbg \
---pretrained_path depth-anything/da3-base \
---depth_model_config /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/networks/configs/endo-da3-depth-wowrapper.yaml
+--depth_model_config /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/networks/configs/endo-da3-depth-wowrapper-default.yaml \
+# --of_samples \
+# --of_samples_num 16 \
+# --save_frequency 1000 \
+# --log_frequency 1 \
+# --num_epochs 20 \
+# --batch_size 2 \
+# --log_dir /mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm/endodac_dbg \
+# --train_data_file d6_kf2.txt \
+# --val_data_file d6_kf2.txt \
 
+# --learn_intrinsics True \
 
 # --reproj_supervise_type color_warp \
 # --reproj_supervise_type afstyle_color_warp \
