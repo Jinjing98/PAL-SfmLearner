@@ -187,61 +187,29 @@ class Trainer:
         if self.opt.use_stereo:
             self.opt.frame_ids.append("s")
 
-        # Construct depth model
+        # Construct models in order: depth -> pose -> k -> (of, af at end)
         self.construct_depth_model()
         self.parameters_to_train += list(filter(lambda p: p.requires_grad, self.models["depth_model"].parameters()))
 
-        self.models["position_encoder"] = ResnetEncoder(
-            self.opt.num_layers, self.opt.weights_init == "pretrained", num_input_images=2)  # 18
-        self.models["position_encoder"].to(self.device)
-        self.parameters_to_train_0 += list(self.models["position_encoder"].parameters())
-        self.models["position"] = PositionDecoder(
-            self.models["position_encoder"].num_ch_enc, self.opt.scales)
-        self.models["position"].to(self.device)
-        self.parameters_to_train_0 += list(self.models["position"].parameters())
-
-        self.models["transform_encoder"] = ResnetEncoder(
-            self.opt.num_layers, self.opt.weights_init == "pretrained", num_input_images=2)  # 18
-        self.models["transform_encoder"].to(self.device)
-        self.parameters_to_train += list(self.models["transform_encoder"].parameters())
-        self.models["transform"] = TransformDecoder(
-            self.models["transform_encoder"].num_ch_enc, self.opt.scales)
-        self.models["transform"].to(self.device)
-        self.parameters_to_train += list(self.models["transform"].parameters())
-
         if self.use_pose_net:
-
-            if self.opt.pose_model_type == "separate_resnet":
-                self.models["pose_encoder"] = ResnetEncoder(
-                    self.opt.num_layers,
-                    self.opt.weights_init == "pretrained",
-                    num_input_images=self.num_pose_frames)
-                self.models["pose_encoder"].to(self.device)
+            self.construct_pose_model()
+            # Add pose_encoder parameters if it exists
+            if "pose_encoder" in self.models:
                 self.parameters_to_train += list(self.models["pose_encoder"].parameters())
-                self.models["pose"] = PoseDecoder(
-                    self.models["pose_encoder"].num_ch_enc,
-                    num_input_features=1,
-                    num_frames_to_predict_for=2,
-                    trans_scale_factor=getattr(self.opt, 'trans_scale_factor', 0.001),
-                    rot_scale_factor=getattr(self.opt, 'rot_scale_factor', 0.001),
-                    rot_representation=getattr(self.opt, 'rot_representation', 'angle_axis'),
-                    explicit_bias_init_6d9d=getattr(self.opt, 'explicit_bias_init_6d9d', False))
-
-            elif self.opt.pose_model_type == "shared":
-                self.models["pose"] = PoseDecoder(
-                    self.models["encoder"].num_ch_enc, self.num_pose_frames)
-
-            elif self.opt.pose_model_type == "posecnn":
-                self.models["pose"] = PoseCNN(
-                    self.num_input_frames if self.opt.pose_model_input == "all" else 2)
-
-            self.models["pose"].to(self.device)
             self.parameters_to_train += list(self.models["pose"].parameters())
             
             if self.opt.learn_intrinsics:
-                self.models['intrinsics_head'] = IntrinsicsHead(self.models["pose_encoder"].num_ch_enc)
-                self.models['intrinsics_head'].to(self.device)
+                self.construct_k_model()
                 self.parameters_to_train += list(self.models['intrinsics_head'].parameters())
+
+        # Construct of and af models at the end
+        self.construct_of_model()
+        self.parameters_to_train_0 += list(self.models["position_encoder"].parameters())
+        self.parameters_to_train_0 += list(self.models["position"].parameters())
+
+        self.construct_af_model()
+        self.parameters_to_train += list(self.models["transform_encoder"].parameters())
+        self.parameters_to_train += list(self.models["transform"].parameters())
 
         # Hardcoded flags: enable learnable camera intrinsics and GT rotations
         self.learnable_K = False
@@ -456,6 +424,79 @@ class Trainer:
             print(f"Successfully loaded pretrained weights from {self.opt.pretrained_path} for depth net.\n")
         else:
             assert False, "scratch training?"
+
+    def construct_pose_model(self):
+        """Construct and initialize the pose model.
+        Supports different pose model types: separate_resnet, shared, posecnn.
+        """
+        if self.opt.pose_model_type == "separate_resnet":
+            self.models["pose_encoder"] = ResnetEncoder(
+                self.opt.num_layers,
+                self.opt.weights_init == "pretrained",
+                num_input_images=self.num_pose_frames)
+            self.models["pose_encoder"].to(self.device)
+            self.models["pose"] = PoseDecoder(
+                self.models["pose_encoder"].num_ch_enc,
+                num_input_features=1,
+                num_frames_to_predict_for=2,
+                trans_scale_factor=getattr(self.opt, 'trans_scale_factor', 0.001),
+                rot_scale_factor=getattr(self.opt, 'rot_scale_factor', 0.001),
+                rot_representation=getattr(self.opt, 'rot_representation', 'angle_axis'),
+                explicit_bias_init_6d9d=getattr(self.opt, 'explicit_bias_init_6d9d', False))
+
+        elif self.opt.pose_model_type == "shared":
+            self.models["pose"] = PoseDecoder(
+                self.models["encoder"].num_ch_enc, self.num_pose_frames)
+
+        elif self.opt.pose_model_type == "posecnn":
+            self.models["pose"] = PoseCNN(
+                self.num_input_frames if self.opt.pose_model_input == "all" else 2)
+
+        self.models["pose"].to(self.device)
+
+    def construct_k_model(self):
+        """Construct and initialize the intrinsics (K) model.
+        Supports mlp_with_pn_bottleneck_ipt which uses pose network's intermediate feature.
+        """
+        if self.opt.k_model_type == "mlp_with_pn_bottleneck_ipt":
+            # Sanity check: pose_encoder must exist for this model type
+            if "pose_encoder" not in self.models:
+                raise ValueError(
+                    "k_model_type 'mlp_with_pn_bottleneck_ipt' requires pose_encoder. "
+                    "Ensure pose_model_type is 'separate_resnet'."
+                )
+            self.models['intrinsics_head'] = IntrinsicsHead(self.models["pose_encoder"].num_ch_enc)
+            self.models['intrinsics_head'].to(self.device)
+        else:
+            raise ValueError(f"Unsupported k_model_type: {self.opt.k_model_type}")
+
+    def construct_of_model(self):
+        """Construct and initialize the optical flow (OF) model.
+        Currently only supports separate_resnet type.
+        """
+        if self.opt.of_model_type == "separate_resnet":
+            self.models["position_encoder"] = ResnetEncoder(
+                self.opt.num_layers, self.opt.weights_init == "pretrained", num_input_images=2)
+            self.models["position_encoder"].to(self.device)
+            self.models["position"] = PositionDecoder(
+                self.models["position_encoder"].num_ch_enc, self.opt.scales)
+            self.models["position"].to(self.device)
+        else:
+            raise ValueError(f"Unsupported of_model_type: {self.opt.of_model_type}")
+
+    def construct_af_model(self):
+        """Construct and initialize the affine transform (AF) model.
+        Currently only supports separate_resnet type.
+        """
+        if self.opt.af_model_type == "separate_resnet":
+            self.models["transform_encoder"] = ResnetEncoder(
+                self.opt.num_layers, self.opt.weights_init == "pretrained", num_input_images=2)
+            self.models["transform_encoder"].to(self.device)
+            self.models["transform"] = TransformDecoder(
+                self.models["transform_encoder"].num_ch_enc, self.opt.scales)
+            self.models["transform"].to(self.device)
+        else:
+            raise ValueError(f"Unsupported af_model_type: {self.opt.af_model_type}")
 
     def set_train_0(self):
         """Convert all models to training mode

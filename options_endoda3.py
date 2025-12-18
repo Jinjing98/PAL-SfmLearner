@@ -72,6 +72,31 @@ class MonodepthOptions:
                                  type=str,
                                  help="path to depth model config file (YAML)",
                                  default="/mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/networks/configs/endo-da3-all-wowrapper.yaml")
+        self.parser.add_argument("--pose_model_type",
+                                 type=str,
+                                 help="normal or shared",
+                                 default="separate_resnet",
+                                 choices=["posecnn", "separate_resnet", "shared"])
+        self.parser.add_argument("--depth_model_type",
+                                 type=str,
+                                 help="depth model type (placeholder)",
+                                 default="depthanything3",
+                                 choices=["depthanything3"])
+        self.parser.add_argument("--of_model_type",
+                                 type=str,
+                                 help="optical flow model type",
+                                 default="separate_resnet",
+                                 choices=["separate_resnet"])
+        self.parser.add_argument("--af_model_type",
+                                 type=str,
+                                 help="affine transform model type",
+                                 default="separate_resnet",
+                                 choices=["separate_resnet"])
+        self.parser.add_argument("--k_model_type",
+                                 type=str,
+                                 help="intrinsics model type",
+                                 default="mlp_with_pn_bottleneck_ipt",
+                                 choices=["mlp_with_pn_bottleneck_ipt"])
 
         # TRAINING options
         self.parser.add_argument("--model_name",
@@ -237,11 +262,6 @@ class MonodepthOptions:
                                  help="how many images the pose network gets",
                                  default="pairs",
                                  choices=["pairs", "all"])
-        self.parser.add_argument("--pose_model_type",
-                                 type=str,
-                                 help="normal or shared",
-                                 default="separate_resnet",
-                                 choices=["posecnn", "separate_resnet", "shared"])
 
         # SYSTEM options
         self.parser.add_argument("--no_cuda",
