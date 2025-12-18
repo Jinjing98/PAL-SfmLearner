@@ -1201,19 +1201,39 @@ class Trainer:
 
             loss = 0
             registration_losses = []
+            refine_losses = []
 
             target = inputs[("color", 0, 0)]
 
             for frame_id in self.opt.frame_ids[1:]:
                 registration_losses.append(
                     ncc_loss(outputs[("registration", scale, frame_id)].mean(1, True), target.mean(1, True)))
+                
+                # Compute refinement loss: quality of refined image vs pose+K warped image
+                if ("refined", scale, frame_id) in outputs and ("color", frame_id, scale) in outputs:
+                    refine_losses.append(
+                        ncc_loss(
+                            outputs[("refined", scale, frame_id)].mean(1, True), 
+                            outputs[("color", frame_id, scale)].mean(1, True)
+                        ))
 
             registration_losses = torch.cat(registration_losses, 1)
             registration_losses, idxs_registration = torch.min(registration_losses, dim=1)
-
-            loss += registration_losses.mean()
+            loss_registration = registration_losses.mean()
+            loss += loss_registration
+            
+            # Process refine_losses following the same style as registration_losses
+            loss_refine = torch.tensor(0.0, device=self.device)
+            if len(refine_losses) > 0:
+                refine_losses_cat = torch.cat(refine_losses, 1)
+                refine_losses_cat, idxs_refine = torch.min(refine_losses_cat, dim=1)
+                loss_refine = refine_losses_cat.mean()
+                loss += loss_refine
+            
             total_loss += loss
             losses["loss/{}".format(scale)] = loss
+            losses["loss_registration/{}".format(scale)] = loss_registration
+            losses["loss_refine/{}".format(scale)] = loss_refine
 
         total_loss /= self.num_scales
         losses["loss"] = -1 * total_loss

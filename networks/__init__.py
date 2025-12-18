@@ -7,3 +7,4 @@ from .paba import LocalAffineAlignment
 from .endo_da3 import EndoDepthAnything3Net
 from .pose_decoder_da3 import EndoCameraDec
 from .endo_vision_transformer import EndoDinoVisionTransformer
+from .raft import RAFT

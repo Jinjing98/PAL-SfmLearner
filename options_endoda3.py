@@ -71,7 +71,8 @@ class MonodepthOptions:
         self.parser.add_argument("--depth_model_config",
                                  type=str,
                                  help="path to depth model config file (YAML)",
-                                 default="/mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/networks/configs/endo-da3-all-wowrapper.yaml")
+                              #    default="/mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/networks/configs/endo-da3-all-wowrapper.yaml",
+                                 )
         self.parser.add_argument("--pose_model_type",
                                  type=str,
                                  help="normal or shared",
