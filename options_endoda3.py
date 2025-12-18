@@ -33,8 +33,8 @@ class MonodepthOptions:
         # Model options
         self.parser.add_argument("--pretrained_path",
                                  type=str,
-                                 help="pretrained weights path",
-                                 default=os.path.join(file_dir, "pretrained_model"))
+                                 help="pretrained weights path; load with hf name.",
+                                 default='depth-anything/da3-base')
         self.parser.add_argument("--backbone_size",
                                  type=str,
                                  help="size of pretrained Dinov2 backbone",
@@ -66,6 +66,13 @@ class MonodepthOptions:
                                  type=str2bool,
                                  help="learn the camera intrinsics with a seperate decoder",
                                  default=True)
+
+        # Depth model options
+        self.parser.add_argument("--depth_model_config",
+                                 type=str,
+                                 help="path to depth model config file (YAML)",
+                                 default="/mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/networks/configs/endo-da3-all-wowrapper.yaml")
+
         # TRAINING options
         self.parser.add_argument("--model_name",
                                  type=str,

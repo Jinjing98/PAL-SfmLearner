@@ -3,10 +3,18 @@ from __future__ import absolute_import, division, print_function
 import time
 import json
 import datasets
- 
+import sys
+from pathlib import Path
 
-from third_party.EndoDAC.models.endodac import endodac, mark_only_part_as_trainable
-from networks.endo_da3 import mark_only_part_as_trainable_v2
+# Setup path for depth_anything_3 imports
+ROOT = Path(__file__).resolve().parents[0]
+sys.path.insert(0, str(ROOT / "third_party/depth_anything_3/src"))
+
+# from third_party.EndoDAC.models.endodac import endodac, mark_only_part_as_trainable
+from networks.endo_da3 import mark_only_part_as_trainable_v2, EndoDepthAnything3Net
+from depth_anything_3.cfg import create_object, load_config
+from depth_anything_3.api import DepthAnything3
+from utils import load_pretrained_weights
 from third_party.EndoDAC.models.encoders import ResnetEncoder
 from third_party.EndoDAC.models.decoders import PositionDecoder, TransformDecoder, DepthDecoder
 from third_party.EndoDAC.models.decoders import IntrinsicsHead, PoseCNN
@@ -37,6 +45,90 @@ import os
 import torch
 
 splits_dir = os.path.join(os.path.dirname(__file__), "splits")
+
+
+class EndoDepthAnything3NetWrapper(torch.nn.Module):
+    """
+    Wrapper for EndoDepthAnything3Net to adapt interface for trainer_endoda3.
+    Converts between (B, 3, H, W) input/output format and EndoDepthAnything3Net's (B, N, 3, H, W) format.
+    Also converts depth to disparity and creates multi-scale outputs.
+    """
+    def __init__(self, model, min_depth=0.1, max_depth=150.0, scales=[0, 1, 2, 3]):
+        super().__init__()
+        self.model = model
+        self.min_depth = min_depth
+        self.max_depth = max_depth
+        self.scales = scales
+        # Expose lora_type from wrapped model for compatibility
+        self.lora_type = getattr(model, 'lora_type', 'none')
+        
+    def forward(self, x):
+        """
+        Forward pass.
+        
+        Args:
+            x: Input tensor of shape (B, 3, H, W)
+            
+        Returns:
+            Dictionary with keys ("disp", scale) for each scale
+        """
+        single_frame_input = True
+        if x.dim() == 4:
+            # Convert single frame input (B, 3, H, W) to (B, 1, 3, H, W) for EndoDepthAnything3Net
+            B, C, H, W = x.shape
+            x_mv = x.unsqueeze(1)  # (B, 1, 3, H, W)
+        else:
+            single_frame_input = False
+            # multi-frame input (B, S, 3, H, W)
+            assert x.dim() == 5, f"x shape: {x.shape}"
+            B, S, C, H, W = x.shape
+            assert C == 3, f"C shape: {C}"
+            x_mv = x
+        # Forward through EndoDepthAnything3Net
+        output = self.model(x_mv, extrinsics=None, intrinsics=None, 
+                           export_feat_layers=[], infer_gs=False, use_ray_pose=False)
+        
+        # Extract depth: output.depth is (B, S, H, W) where S=1 for monocular
+        # print(f"depth shape: {output.depth.shape}")
+        # print(f"conf shape: {output.depth_conf.shape}")
+        # print(f"extrinsics shape: {output.extrinsics.shape}")
+        # print(f"intrinsics shape: {output.intrinsics.shape}")
+        
+        # extract depth estimates from output: (B, S, H, W)
+        depth = output.depth 
+
+        depth_clamped = torch.clamp(depth, min=self.min_depth, max=self.max_depth)
+        disp = 1.0 / depth_clamped # (B, S, H, W)
+        
+        # Interpolate to match input image size if needed
+        if depth.shape[-2:] != (256, 320):
+            disp = F.interpolate(disp, size=(256, 320), mode="bilinear", align_corners=True)
+
+        assert disp.dim() == 4, f"disp shape: {disp.shape}"
+        assert disp.shape[1] == 1, f"disp shape: {disp.shape}"
+
+        # Indrect create multi-scale outputs: not actually enable multi-resolution depth direcly from head 
+        outputs = {}
+        for scale in self.scales:
+            if scale == 0:
+                # Original scale - already at input resolution
+                outputs[("disp", scale)] = disp
+            else:
+                # Downscale for other scales
+                h_scale = H // (2 ** scale)
+                w_scale = W // (2 ** scale)
+                disp_scale = F.interpolate(disp, size=(h_scale, w_scale), 
+                                          mode="bilinear", align_corners=True)
+                outputs[("disp", scale)] = disp_scale
+        
+        if not single_frame_input:
+            # fuse B and S to construct outputs dimension B_S, H, W
+            # then format as the pipeline required dim 1 for channel
+            # B S H W -> B*S 1 H W
+            outputs = {k: v.view(B*S,H, W).unsqueeze(1) for k, v in outputs.items()}
+
+        return outputs
+
 
 class Trainer:
     def __init__(self, options):
@@ -72,15 +164,9 @@ class Trainer:
         if self.opt.use_stereo:
             self.opt.frame_ids.append("s")
 
-        self.models["depth_model"] = endodac(
-            backbone_size=getattr(self.opt, 'backbone_size', 'base'), 
-            r=self.opt.lora_rank, 
-            lora_type=self.opt.lora_type,
-            image_shape=(224,280), 
-            pretrained_path=self.opt.pretrained_path,
-            residual_block_indexes=self.opt.residual_block_indexes,
-            include_cls_token=self.opt.include_cls_token)
-        self.models["depth_model"].to(self.device)
+        # Construct depth model
+        self.construct_depth_model()
+        
         self.parameters_to_train += list(filter(lambda p: p.requires_grad, self.models["depth_model"].parameters()))
 
         self.models["position_encoder"] = ResnetEncoder(
@@ -297,6 +383,60 @@ class Trainer:
         print(f'Trainable params: {Trainable_params}')
         print(f'Non-trainable params: {NonTrainable_params}')
         print(f'Trainable params ratio: {100 * Trainable_params / Total_params}%')
+
+    def construct_depth_model(self):
+        """Construct and initialize the depth model from config file.
+        Loads pretrained weights if specified in options.
+        """
+        # Initialize EndoDepthAnything3Net from config file
+        depth_model_config_path = self.opt.depth_model_config 
+        assert os.path.exists(depth_model_config_path), f"Config file not found: {depth_model_config_path}"
+        print(f"Loading depth model setting from config: {depth_model_config_path}")
+        depth_model_config = load_config(depth_model_config_path)
+        depth_model_base = create_object(depth_model_config)
+        
+        # Wrap the model to adapt interface
+        self.models["depth_model"] = EndoDepthAnything3NetWrapper(
+            depth_model_base,
+            min_depth=self.opt.min_depth,
+            max_depth=self.opt.max_depth,
+            scales=self.opt.scales
+        )
+        self.models["depth_model"].to(self.device)
+        
+        # Load pretrained weights if requested
+        if self.opt.pretrained_path is not None:
+            print("\n" + "="*60)
+            print(f"Loading pretrained weights from {self.opt.pretrained_path}")
+            print("="*60)
+            
+            model_pretrained = DepthAnything3.from_pretrained(self.opt.pretrained_path)
+            model_pretrained = model_pretrained.to(device=self.device)
+            
+            # Get the underlying model from the wrapper
+            model_to_load = depth_model_base
+            
+            # Determine if cam_dec should be disabled based on rotation representation
+            disable_cam_dec = []
+            if hasattr(model_to_load, 'cam_dec') and model_to_load.cam_dec is not None:
+                if hasattr(model_to_load.cam_dec, 'rot_representation'):
+                    if model_to_load.cam_dec.rot_representation != "quat_xyzw":
+                        disable_cam_dec = ["cam_dec"]
+            
+            # Load pretrained weights
+            load_pretrained_weights(
+                model=model_to_load,
+                pretrained_model=model_pretrained,
+                model_name="depth_model",
+                remove_prefixes=["model.", "pretrained."],
+                disable_modules=disable_cam_dec,
+                strict=False,
+                max_levels=3,
+                verbose=False
+            )
+            print(f"Successfully loaded pretrained weights from {self.opt.pretrained_path} for depth net.\n")
+        else:
+            assert False, "scratch training?"
 
     def set_train_0(self):
         """Convert all models to training mode
@@ -1104,7 +1244,9 @@ class Trainer:
             pretrained_dict = torch.load(path)
             pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in model_dict}
             model_dict.update(pretrained_dict)
-            self.models[n].load_state_dict(model_dict)
+            info_n = self.models[n].load_state_dict(model_dict, strict=False)
+            from utils.load_models import print_state_dict_info
+            print_state_dict_info(info_n, model_name=n, max_levels=4)
 
         # loading adam state
         # optimizer_load_path = os.path.join(self.opt.load_weights_folder, "adam.pth")
