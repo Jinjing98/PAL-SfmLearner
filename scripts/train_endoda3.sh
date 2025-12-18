@@ -59,7 +59,7 @@ CUDA_VISIBLE_DEVICES=0 python /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLear
 --warm_up_step 20000 \
 --warm_up_step 5000 \
 --warm_up_step 40000 \
---depth_model_config /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/networks/configs/endo-da3-depth-wowrapper-default.yaml \
+--endoda3_model_config /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/networks/configs/endo-da3-depth-wowrapper-default.yaml \
 --of_samples \
 --of_samples_num 16 \
 --save_frequency 1000 \

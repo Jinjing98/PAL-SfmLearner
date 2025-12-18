@@ -68,7 +68,7 @@ class MonodepthOptions:
                                  default=True)
 
         # DA3 model options
-        self.parser.add_argument("--depth_model_config",
+        self.parser.add_argument("--endoda3_model_config",
                                  type=str,
                                  help="path to depth model config file (YAML)",
                               #    default="/mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/networks/configs/endo-da3-all-wowrapper.yaml",

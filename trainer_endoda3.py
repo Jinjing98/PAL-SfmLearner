@@ -448,11 +448,11 @@ class Trainer:
         Loads pretrained weights if specified in options.
         """
         # Initialize EndoDepthAnything3Net from config file
-        depth_model_config_path = self.opt.depth_model_config 
-        assert os.path.exists(depth_model_config_path), f"Config file not found: {depth_model_config_path}"
-        print(f"Loading depth model setting from config: {depth_model_config_path}")
-        depth_model_config = load_config(depth_model_config_path)
-        depth_model_base = create_object(depth_model_config)
+        endoda3_model_config_path = self.opt.endoda3_model_config 
+        assert os.path.exists(endoda3_model_config_path), f"Config file not found: {endoda3_model_config_path}"
+        print(f"Loading depth model setting from config: {endoda3_model_config_path}")
+        endoda3_model_config = load_config(endoda3_model_config_path)
+        depth_model_base = create_object(endoda3_model_config)
         
         # Wrap the model to adapt interface
         self.models["depth_model"] = EndoDepthAnything3NetWrapper(
