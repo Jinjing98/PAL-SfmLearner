@@ -87,7 +87,15 @@ class MonodepthOptions:
                                  type=str,
                                  help="optical flow model type",
                                  default="separate_resnet",
-                                 choices=["separate_resnet"])
+                                 choices=["separate_resnet", "raft"])
+        self.parser.add_argument("--raft_num_flow_updates",
+                                 type=int,
+                                 help="number of flow updates for RAFT",
+                                 default=12)
+        self.parser.add_argument("--raft_max_disp",
+                                 type=float,
+                                 help="maximum displacement for RAFT flow clamping",
+                                 default=None)
         self.parser.add_argument("--af_model_type",
                                  type=str,
                                  help="affine transform model type",

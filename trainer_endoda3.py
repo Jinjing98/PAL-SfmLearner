@@ -20,6 +20,7 @@ from utils import load_pretrained_weights
 from third_party.EndoDAC.models.encoders import ResnetEncoder
 from third_party.EndoDAC.models.decoders import PositionDecoder, TransformDecoder, DepthDecoder
 from third_party.EndoDAC.models.decoders import IntrinsicsHead, PoseCNN
+from networks.raft import RAFT
 
 from utils.utils_optic_flow import get_occu_mask_backward, get_occu_mask_bidirection, optical_flow
 from utils.metrics import compute_depth_metrics, compute_pose_metrics, compute_depth_errors
@@ -153,6 +154,76 @@ class EndoDepthAnything3NetWrapper(torch.nn.Module):
         return outputs
 
 
+class RAFTWrapper(torch.nn.Module):
+    """
+    Wrapper for RAFT to match PositionDecoder interface.
+    Generates multi-scale flows from single RAFT output.
+    """
+    def __init__(self, raft_model, scales, max_disp=None):
+        super().__init__()
+        self.raft_model = raft_model
+        self.scales = scales
+        self.max_disp = max_disp
+        
+    def _sanitize_flow(self, flow):
+        """Sanitize flow: remove NaN and Inf values."""
+        flow = torch.where(torch.isfinite(flow), flow, torch.zeros_like(flow))
+        return flow
+    
+    def _clamp_flow(self, flow, scale_factor=1.0):
+        """Clamp flow magnitude if max_disp is specified."""
+        if self.max_disp is not None:
+            max_val = self.max_disp * scale_factor
+            flow = torch.clamp(flow, min=-max_val, max=max_val)
+        return flow
+    
+    def _generate_multiscale_flows(self, flow_base, base_h, base_w):
+        """
+        Generate multi-scale flows from base RAFT output.
+        Strategy: downsample flow and scale magnitude proportionally.
+        When downsampling by 2^scale, flow magnitude is divided by 2^scale.
+        """
+        outputs = {}
+        for scale in self.scales:
+            if scale == 0:
+                flow = flow_base
+            else:
+                h_scale = base_h // (2 ** scale)
+                w_scale = base_w // (2 ** scale)
+                flow = F.interpolate(flow_base, size=(h_scale, w_scale), 
+                                    mode="bilinear", align_corners=True)
+                # Scale flow magnitude: when resolution is 1/2^scale, flow is 1/2^scale
+                flow = flow / (2 ** scale)
+            
+            flow = self._sanitize_flow(flow)
+            # Clamp uses original max_disp scaled by resolution factor
+            flow = self._clamp_flow(flow, scale_factor=1.0 / (2 ** scale) if scale > 0 else 1.0)
+            outputs[("position", scale)] = flow
+        
+        return outputs
+    
+    def forward(self, framel, framer):
+        """
+        Forward pass through RAFT.
+        
+        Args:
+            framel: Left frame (B, 3, H, W)
+            framer: Right frame (B, 3, H, W)
+            
+        Returns:
+            Dictionary with keys ("position", scale) for each scale
+        """
+        flow_base = self.raft_model(framel, framer)  # Returns (B, 2, H, W) tensor
+        
+        if flow_base.dim() == 3:
+            flow_base = flow_base.unsqueeze(0)
+        B, C, H, W = flow_base.shape
+        assert C == 2, f"Expected 2-channel flow, got {C}"
+        
+        outputs = self._generate_multiscale_flows(flow_base, H, W)
+        return outputs
+
+
 class Trainer:
     def __init__(self, options):
         self.opt = options
@@ -204,7 +275,8 @@ class Trainer:
 
         # Construct of and af models at the end
         self.construct_of_model()
-        self.parameters_to_train_0 += list(self.models["position_encoder"].parameters())
+        if "position_encoder" in self.models:
+            self.parameters_to_train_0 += list(self.models["position_encoder"].parameters())
         self.parameters_to_train_0 += list(self.models["position"].parameters())
 
         self.construct_af_model()
@@ -472,7 +544,7 @@ class Trainer:
 
     def construct_of_model(self):
         """Construct and initialize the optical flow (OF) model.
-        Currently only supports separate_resnet type.
+        Supports separate_resnet and raft types.
         """
         if self.opt.of_model_type == "separate_resnet":
             self.models["position_encoder"] = ResnetEncoder(
@@ -480,6 +552,18 @@ class Trainer:
             self.models["position_encoder"].to(self.device)
             self.models["position"] = PositionDecoder(
                 self.models["position_encoder"].num_ch_enc, self.opt.scales)
+            self.models["position"].to(self.device)
+        elif self.opt.of_model_type == "raft":
+            raft_model = RAFT(
+                device=self.device,
+                weights="Raft_Large_Weights.DEFAULT",
+                num_flow_updates=getattr(self.opt, 'raft_num_flow_updates', 12)
+            )
+            self.models["position"] = RAFTWrapper(
+                raft_model=raft_model,
+                scales=self.opt.scales,
+                max_disp=getattr(self.opt, 'raft_max_disp', None)
+            )
             self.models["position"].to(self.device)
         else:
             raise ValueError(f"Unsupported of_model_type: {self.opt.of_model_type}")
@@ -501,8 +585,9 @@ class Trainer:
     def set_train_0(self):
         """Convert all models to training mode
         """
-        for param in self.models["position_encoder"].parameters():
-            param.requires_grad = True
+        if "position_encoder" in self.models:
+            for param in self.models["position_encoder"].parameters():
+                param.requires_grad = True
         for param in self.models["position"].parameters():
             param.requires_grad = True
 
@@ -520,11 +605,13 @@ class Trainer:
             for param in self.models["intrinsics_head"].parameters():
                 param.requires_grad = False
             
-        self.models["position_encoder"].train()
+        if "position_encoder" in self.models:
+            self.models["position_encoder"].train()
         self.models["position"].train()
 
         self.models["depth_model"].eval()
-        self.models["pose_encoder"].eval()
+        if "pose_encoder" in self.models:
+            self.models["pose_encoder"].eval()
         self.models["pose"].eval()
         self.models["transform_encoder"].eval()
         self.models["transform"].eval()
@@ -534,8 +621,9 @@ class Trainer:
     def set_train(self):
         """Convert all models to training mode
         """
-        for param in self.models["position_encoder"].parameters():
-            param.requires_grad = False
+        if "position_encoder" in self.models:
+            for param in self.models["position_encoder"].parameters():
+                param.requires_grad = False
         for param in self.models["position"].parameters():
             param.requires_grad = False
 
@@ -564,11 +652,13 @@ class Trainer:
             for param in self.models["intrinsics_head"].parameters():
                 param.requires_grad = True
 
-        self.models["position_encoder"].eval()
+        if "position_encoder" in self.models:
+            self.models["position_encoder"].eval()
         self.models["position"].eval()
 
         self.models["depth_model"].train()
-        self.models["pose_encoder"].train()
+        if "pose_encoder" in self.models:
+            self.models["pose_encoder"].train()
         self.models["pose"].train()
         self.models["transform_encoder"].train()
         self.models["transform"].train()
@@ -581,8 +671,12 @@ class Trainer:
         self.models["depth_model"].eval()
         self.models["transform_encoder"].eval()
         self.models["transform"].eval()
-        self.models["pose_encoder"].eval()
+        if "pose_encoder" in self.models:
+            self.models["pose_encoder"].eval()
         self.models["pose"].eval()
+        if "position_encoder" in self.models:
+            self.models["position_encoder"].eval()
+        self.models["position"].eval()
         if self.opt.learn_intrinsics:
             self.models["intrinsics_head"].eval()
 
@@ -755,10 +849,17 @@ class Trainer:
                     inputs_all_reverse = [pose_feats[0], pose_feats[f_i]]
 
                     # position
-                    position_inputs = self.models["position_encoder"](torch.cat(inputs_all, 1))
-                    position_inputs_reverse = self.models["position_encoder"](torch.cat(inputs_all_reverse, 1))
-                    outputs_0 = self.models["position"](position_inputs)
-                    outputs_1 = self.models["position"](position_inputs_reverse)
+                    if self.opt.of_model_type == "raft":
+                        # RAFT takes raw frames directly, no encoder
+                        outputs_0 = self.models["position"](pose_feats[0], pose_feats[f_i]) # compute tgt2src flow
+                        outputs_1 = self.models["position"](pose_feats[f_i], pose_feats[0])
+                    else:
+                        # separate_resnet: use encoder
+                        # has historical order issue
+                        position_inputs = self.models["position_encoder"](torch.cat(inputs_all, 1))
+                        position_inputs_reverse = self.models["position_encoder"](torch.cat(inputs_all_reverse, 1))
+                        outputs_0 = self.models["position"](position_inputs)
+                        outputs_1 = self.models["position"](position_inputs_reverse)
 
                     for scale in self.opt.scales:
                         outputs[("position", scale, f_i)] = outputs_0[("position", scale)]
@@ -882,10 +983,17 @@ class Trainer:
                     inputs_all_reverse = [pose_feats[0], pose_feats[f_i]]
 
                     # position
-                    position_inputs = self.models["position_encoder"](torch.cat(inputs_all, 1))
-                    position_inputs_reverse = self.models["position_encoder"](torch.cat(inputs_all_reverse, 1))
-                    outputs_0 = self.models["position"](position_inputs)
-                    outputs_1 = self.models["position"](position_inputs_reverse)
+                    if self.opt.of_model_type == "raft":
+                        # RAFT takes raw frames directly, no encoder
+                        outputs_0 = self.models["position"](pose_feats[0], pose_feats[f_i]) # compute tgt2src flow
+                        outputs_1 = self.models["position"](pose_feats[f_i], pose_feats[0])
+                    else:
+                        # separate_resnet: use encoder
+                        # has historical order issue
+                        position_inputs = self.models["position_encoder"](torch.cat(inputs_all, 1))
+                        position_inputs_reverse = self.models["position_encoder"](torch.cat(inputs_all_reverse, 1))
+                        outputs_0 = self.models["position"](position_inputs)
+                        outputs_1 = self.models["position"](position_inputs_reverse)
 
                     for scale in self.opt.scales:
 

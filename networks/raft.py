@@ -6,26 +6,23 @@ from torchvision.models.optical_flow import raft_large, raft_small, raft
 #         ).to(device)
 
 class RAFT:
-    def __init__(self, device="cuda", weights="Raft_Large_Weights.DEFAULT"):
-        # self.model = raft(
-        #     weights="Raft_Weights.DEFAULT", progress=False
-        # ).to(device)
-        # self.model = raft_small(
-        #             weights="Raft_Small_Weights.DEFAULT", progress=False
-        #         ).to(device)
+    def __init__(self, device="cuda", weights="Raft_Large_Weights.DEFAULT", num_flow_updates=12):
         self.model = raft_large(
                     weights=weights, 
                     progress=False
                 ).to(device)
-        # self.model = self.model.eval()
         self.device = device
+        self.num_flow_updates = num_flow_updates
+        # Set num_flow_updates if the model supports it
+        if hasattr(self.model, 'num_flow_updates'):
+            self.model.num_flow_updates = num_flow_updates
 
     def disparity_estimation(self, framel, framer):
         flow = self.__call__(framel, framer)
         flow = flow[:, 0, :, :]
         flow[flow > 0] = 0.0
         flow = -flow
-        return flow#.detach().cpu()
+        return flow
 
     def depth_estimation(self, framel, framer, baseline):
         flow = self.__call__(framel, framer)
@@ -35,22 +32,27 @@ class RAFT:
         valid = torch.logical_and((depth > 0), (depth <= 1.0))
         depth[~valid] = 1.0
 
-        return depth#.detach().cpu()
+        return depth
 
     def __call__(self, framel, framer):
+        """
+        Forward pass through RAFT.
+        Returns final dense flow (B, 2, H, W).
+        """
         framel = framel.to(self.device)
         framer = framer.to(self.device)
 
-        flow_predictions = self.model(framel, framer)#[-1]
-        outputs = {}
-        assert self.model.num_flow_udpates == 12, "num_flow_udpates must be 4"
-        for scale_raw in range(self.model.num_flow_udpates):
-            if scale_raw % 4 == 0:
-                scale = scale_raw // 4
-                outputs[("position", scale)] = flow_predictions[scale_raw]
-            else:
-                print(f"scale_raw {scale_raw} is not divisible by 4")
-        return outputs
-
-        # flow in the shape of (B, 2, H, W) or (2, H, W)
-        # return flow#.detach().cpu()
+        flow_predictions = self.model(framel, framer)
+        
+        # Return the final flow prediction (last iteration)
+        # flow_predictions is a list of flows from each iteration
+        if isinstance(flow_predictions, (list, tuple)):
+            flow = flow_predictions[-1]  # Final flow
+        else:
+            flow = flow_predictions
+        
+        # Ensure shape is (B, 2, H, W)
+        if flow.dim() == 3:
+            flow = flow.unsqueeze(0)
+        
+        return flow

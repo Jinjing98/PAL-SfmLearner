@@ -22,6 +22,7 @@
 CUDA_VISIBLE_DEVICES=0 python /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/train_endoda3.py \
 --data_path /mnt/nct-zfs/TCO-All/SharedDatasets/SCARED_Images_Resized/ \
 --num_workers 2 \
+--num_workers 0 \
 --num_epochs 20 \
 --batch_size 8 \
 --log_frequency 200 \
@@ -37,6 +38,7 @@ CUDA_VISIBLE_DEVICES=0 python /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLear
 --val_data_file val_files.txt \
 --test_data_file test_files.txt \
 --log_dir /mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm/endoDA3 \
+--log_dir /mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm/endodac/DA3/ \
 --pretrained_path depth-anything/da3-base \
 --exp_suffix full_endodacB_6D_baseline \
 --exp_suffix full_endodacB_angleaxis_GTrot \
