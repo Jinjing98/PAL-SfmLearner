@@ -189,14 +189,12 @@ class Trainer:
 
         # Construct depth model
         self.construct_depth_model()
-        
         self.parameters_to_train += list(filter(lambda p: p.requires_grad, self.models["depth_model"].parameters()))
 
         self.models["position_encoder"] = ResnetEncoder(
             self.opt.num_layers, self.opt.weights_init == "pretrained", num_input_images=2)  # 18
         self.models["position_encoder"].to(self.device)
         self.parameters_to_train_0 += list(self.models["position_encoder"].parameters())
-
         self.models["position"] = PositionDecoder(
             self.models["position_encoder"].num_ch_enc, self.opt.scales)
         self.models["position"].to(self.device)
@@ -206,7 +204,6 @@ class Trainer:
             self.opt.num_layers, self.opt.weights_init == "pretrained", num_input_images=2)  # 18
         self.models["transform_encoder"].to(self.device)
         self.parameters_to_train += list(self.models["transform_encoder"].parameters())
-
         self.models["transform"] = TransformDecoder(
             self.models["transform_encoder"].num_ch_enc, self.opt.scales)
         self.models["transform"].to(self.device)
@@ -221,7 +218,6 @@ class Trainer:
                     num_input_images=self.num_pose_frames)
                 self.models["pose_encoder"].to(self.device)
                 self.parameters_to_train += list(self.models["pose_encoder"].parameters())
-
                 self.models["pose"] = PoseDecoder(
                     self.models["pose_encoder"].num_ch_enc,
                     num_input_features=1,

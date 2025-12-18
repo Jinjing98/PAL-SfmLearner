@@ -21,6 +21,12 @@ __object__:
 dino_resize_hw:
 ref_view_strategy: "saddle_balanced"
 
+# LoRA configuration
+lora_type: "lora"
+# lora_type: "dvlora"
+# lora_type: "none"
+lora_r: 4
+
 net:
   __object__:
     path: networks

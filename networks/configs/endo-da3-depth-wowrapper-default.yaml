@@ -18,6 +18,12 @@ dino_resize_hw:
   - 280
 ref_view_strategy: "first"
 
+# LoRA configuration
+lora_type: "lora"
+# lora_type: "dvlora"
+# lora_type: "none"
+lora_r: 4
+
 # dino_resize_hw:
 # ref_view_strategy: "saddle_balanced"
 
