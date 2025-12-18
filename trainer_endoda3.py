@@ -1037,7 +1037,11 @@ class Trainer:
         """
         self.set_eval()
         if getattr(self.opt, 'val_full_eval', False):
+            report_quantile_pose_err = True # used for compute quantile
+            
             metrics_accum = {}
+            metrics_trans_ang_err_raw_accum = {}
+            metrics_rot_err_raw_accum = {}
             last_inputs = None
             last_outputs = None
             last_losses = None
@@ -1045,6 +1049,10 @@ class Trainer:
             def _accum(acc, new_metrics):
                 for k, v in new_metrics.items():
                     acc.setdefault(k, []).append(float(v))
+            def _accum_raw(acc, new_metrics):
+                for k, v in new_metrics.items():
+                    # acc.setdefault(k, []).append(v)
+                    acc.setdefault(k, []).extend(v)
 
             with torch.no_grad():
                 for inputs in self.val_loader:
@@ -1056,12 +1064,28 @@ class Trainer:
                         if depth_metrics:
                             _accum(metrics_accum, depth_metrics)
 
-                    pose_metrics = compute_pose_metrics(inputs, outputs, self.opt.frame_ids)
+                   
+                    if report_quantile_pose_err:
+                        pose_metrics, trans_ang_err_metrics_raw, rot_err_metrics_raw = compute_pose_metrics(inputs, outputs, self.opt.frame_ids, ret_raw=True)
+                    else:
+                        pose_metrics = compute_pose_metrics(inputs, outputs, self.opt.frame_ids)
+                    
                     if pose_metrics:
                         _accum(metrics_accum, pose_metrics)
-
+                    
+                    if report_quantile_pose_err:
+                        _accum_raw(metrics_trans_ang_err_raw_accum, trans_ang_err_metrics_raw)
+                        _accum_raw(metrics_rot_err_raw_accum, rot_err_metrics_raw)
             # Average accumulated metrics
             metrics = {k: sum(v_list) / len(v_list) for k, v_list in metrics_accum.items()} if metrics_accum else None
+            if report_quantile_pose_err:
+                q = [0.25,0.5,0.75]
+                for q_i in q:
+                    metrics_trans_ang_err_raw = {k + f'_Q{q_i}': np.quantile(v, q_i) for k, v in metrics_trans_ang_err_raw_accum.items()} if metrics_trans_ang_err_raw_accum else None
+                    metrics_rot_err_raw = {k + f'_Q{q_i}': np.quantile(v, q_i) for k, v in metrics_rot_err_raw_accum.items()} if metrics_rot_err_raw_accum else None
+                    metrics.update(metrics_trans_ang_err_raw)
+                    metrics.update(metrics_rot_err_raw)
+
 
             if last_inputs is not None:
                 self.log("val", last_inputs, last_outputs, last_losses, metrics=metrics)

@@ -59,6 +59,7 @@ CUDA_VISIBLE_DEVICES=0 python /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLear
 --exp_suffix full_endodacB_euler_baseline_warmUp5k \
 --exp_suffix d6_kf2_endodacB_angleaxis_baseline_warmUp5k \
 --exp_suffix d6_kf2_endodacB_angleaxis_baseline_gtK_intK_warmUp5k \
+--exp_suffix d6_kf2_endodacB_angleaxis_baseline_gtK_intK_warmUp5k_DA3 \
 --warm_up_step 5000 \
 --num_epochs 100 \
 --train_data_file d6_kf2.txt \

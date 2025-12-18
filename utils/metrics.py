@@ -187,7 +187,7 @@ def rot_ang_loss(R, Rgt, eps=1e-6):
     return R_err.mean(), R_err
 
 
-def compute_pose_error_v2(gt_rel_poses, pred_rel_poses):
+def compute_pose_error_v2(gt_rel_poses, pred_rel_poses, ret_raw=False):
     """
     Compute pose errors between ground truth and predicted relative poses.
     Args:
@@ -218,11 +218,16 @@ def compute_pose_error_v2(gt_rel_poses, pred_rel_poses):
         'trans_err_scale': trans_err_scale,
         'rot_err_deg': rot_err * 180 / torch.pi
     }
-    
-    return err_dict
+        
+    if ret_raw:
+        trans_err_ang_raw_dict = { f'trans_err_ang_deg_raw': (trans_err_ang_raw*180/torch.pi).tolist() }
+        rot_err_raw_dict = { f'rot_err_deg_raw': (rot_err_raw*180/torch.pi).tolist() }
+        return err_dict, trans_err_ang_raw_dict, rot_err_raw_dict
+    else:
+        return err_dict
 
 
-def compute_pose_metrics(inputs, outputs, frame_ids):
+def compute_pose_metrics(inputs, outputs, frame_ids, ret_raw=False):
     """
     Compute pose metrics for a validation batch.
     
@@ -235,10 +240,14 @@ def compute_pose_metrics(inputs, outputs, frame_ids):
         Dictionary of pose metrics (empty if GT poses not available)
     """
     metrics_dict = {}
-    
+    metrics_trans_ang_raw_dict = {}
+    metrics_rot_err_raw_dict = {}
+
     # Check if GT poses are available
     if ("gt_c2w_poses", 0) not in inputs:
-        return metrics_dict
+        if ret_raw:
+            return metrics_dict, metrics_trans_ang_raw_dict, metrics_rot_err_raw_dict
+        return metrics_dict,
     
     # Get GT absolute poses for target frame (frame 0)
     gt_tgt_abs_poses = inputs[("gt_c2w_poses", 0)]  # (B, 4, 4)
@@ -267,15 +276,34 @@ def compute_pose_metrics(inputs, outputs, frame_ids):
             f'gt_tgt2src_rel_poses.shape: {gt_tgt2src_rel_poses.shape}, pred_rel_poses_batch.shape: {pred_rel_poses_batch.shape}'
         
         # Compute pose errors
-        err_dict = compute_pose_error_v2(gt_tgt2src_rel_poses, pred_rel_poses_batch.detach())
-        
+        if ret_raw:
+            err_dict, trans_err_ang_raw_dict, rot_err_raw_dict = compute_pose_error_v2(gt_tgt2src_rel_poses, pred_rel_poses_batch.detach(), ret_raw=True)
+        else:
+            err_dict = compute_pose_error_v2(gt_tgt2src_rel_poses, pred_rel_poses_batch.detach())
+
         # Accumulate metrics (average across frames)
-        for k, v in err_dict.items():
-            key = f"pose_{k}"
-            if key not in metrics_dict:
-                metrics_dict[key] = []
-            metrics_dict[key].append(v.item())
+        # def accumulate_metrics_across_frames(err_dict, metrics_dict):
+        #     for k, v in err_dict.items():
+        #         key = f"pose_{k}"
+        #         if key not in metrics_dict:
+        #             metrics_dict[key] = []
+        #         metrics_dict[key].append(v.item())
+        #     return metrics_dict
+        def _accum(acc, new_metrics, key_prefix="pose_"):
+            for k, v in new_metrics.items():
+                acc.setdefault(f"{key_prefix}{k}", []).append(float(v))
+        def _accum_raw(acc, new_metrics, key_prefix="pose_"):
+            for k, v in new_metrics.items():
+                # acc.setdefault(f"{key_prefix}{k}", []).append(v)
+                acc.setdefault(f"{key_prefix}{k}", []).extend(v)
+
+        # update metrics_dict via appending across frames
+        _accum(metrics_dict, err_dict)
+        if ret_raw:
+            _accum_raw(metrics_trans_ang_raw_dict, trans_err_ang_raw_dict)
+            _accum_raw(metrics_rot_err_raw_dict, rot_err_raw_dict)
         
+        # manully extend some metrics
         # Log scale of estimated translation
         pred_rel_trans_scale = pred_rel_poses_batch[:, :3, 3].norm(dim=1).mean()
         if "pose_pred_rel_trans_scale" not in metrics_dict:
@@ -289,11 +317,16 @@ def compute_pose_metrics(inputs, outputs, frame_ids):
                 metrics_dict["pose_pred_f0_depth_scale"] = []
             metrics_dict["pose_pred_f0_depth_scale"].append(pred_f0_depth_scale.item())
     
-    # Average metrics across frames
-    for k in list(metrics_dict.keys()):
-        if len(metrics_dict[k]) > 0:
-            metrics_dict[k] = sum(metrics_dict[k]) / len(metrics_dict[k])
-        else:
-            del metrics_dict[k]
-    
-    return metrics_dict
+    # Average metrics across all frames within the batch
+    def _avg_metrics_across_frames(metrics_dict):
+        for k in list(metrics_dict.keys()):
+            if len(metrics_dict[k]) > 0:
+                metrics_dict[k] = sum(metrics_dict[k]) / len(metrics_dict[k])
+            else:
+                del metrics_dict[k]
+        return metrics_dict
+
+    if not ret_raw:
+        return _avg_metrics_across_frames(metrics_dict)
+    else:
+        return _avg_metrics_across_frames(metrics_dict), metrics_trans_ang_raw_dict, metrics_rot_err_raw_dict

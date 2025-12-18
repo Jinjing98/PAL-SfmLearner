@@ -440,7 +440,7 @@ class Trainer:
                     if depth_metrics:
                         metrics.update(depth_metrics)
                 
-                pose_metrics = compute_pose_metrics(inputs, outputs, self.opt.frame_ids)
+                pose_metrics, *pose_metrics_raw = compute_pose_metrics(inputs, outputs, self.opt.frame_ids)
                 if pose_metrics:
                     metrics.update(pose_metrics)
 
@@ -910,7 +910,7 @@ class Trainer:
                         if depth_metrics:
                             _accum(metrics_accum, depth_metrics)
 
-                    pose_metrics = compute_pose_metrics(inputs, outputs, self.opt.frame_ids)
+                    pose_metrics, *pose_metrics_raw = compute_pose_metrics(inputs, outputs, self.opt.frame_ids)
                     if pose_metrics:
                         _accum(metrics_accum, pose_metrics)
 
