@@ -13,6 +13,7 @@ sys.path.insert(0, str(ROOT / "third_party/depth_anything_3/src"))
 # from third_party.EndoDAC.models.endodac import endodac, mark_only_part_as_trainable
 from networks.endo_da3 import mark_only_part_as_trainable_v2, EndoDepthAnything3Net
 from depth_anything_3.cfg import create_object, load_config
+from omegaconf import OmegaConf
 from depth_anything_3.api import DepthAnything3
 from depth_anything_3.model.dualdpt import DualDPT
 from depth_anything_3.model.dpt import DPT
@@ -452,6 +453,9 @@ class Trainer:
         assert os.path.exists(endoda3_model_config_path), f"Config file not found: {endoda3_model_config_path}"
         print(f"Loading depth model setting from config: {endoda3_model_config_path}")
         endoda3_model_config = load_config(endoda3_model_config_path)
+        # Store config for saving later
+        self.endoda3_model_config = endoda3_model_config
+        self.endoda3_model_config_path = endoda3_model_config_path
         depth_model_base = create_object(endoda3_model_config)
         
         # Wrap the model to adapt interface
@@ -1416,6 +1420,12 @@ class Trainer:
 
         with open(os.path.join(models_dir, 'opt.json'), 'w') as f:
             json.dump(to_save, f, indent=2)
+        
+        # Save the loaded config file
+        if hasattr(self, 'endoda3_model_config'):
+            config_save_path = os.path.join(models_dir, 'endoda3_model_config.yaml')
+            OmegaConf.save(self.endoda3_model_config, config_save_path)
+            print(f"Saved model config to: {config_save_path}")
 
     def save_model(self, mode='epoch'):
         """Save model weights to disk

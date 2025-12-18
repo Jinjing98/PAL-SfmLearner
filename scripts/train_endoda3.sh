@@ -21,8 +21,8 @@
 
 CUDA_VISIBLE_DEVICES=0 python /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/train_endoda3.py \
 --data_path /mnt/nct-zfs/TCO-All/SharedDatasets/SCARED_Images_Resized/ \
---num_workers 2 \
 --num_workers 0 \
+--num_workers 2 \
 --num_epochs 20 \
 --batch_size 8 \
 --log_frequency 200 \

@@ -63,9 +63,8 @@ class MonodepthOptions:
      #                             help="includes the cls token in the transformer blocks",
      #                             default=True)
         self.parser.add_argument("--learn_intrinsics",
-                                 type=str2bool,
-                                 help="learn the camera intrinsics with a seperate decoder",
-                                 default=True)
+                                 help="if set, learns the camera intrinsics with a seperate decoder",
+                                 action="store_true")
 
         # DA3 model options
         self.parser.add_argument("--endoda3_model_config",
@@ -77,7 +76,7 @@ class MonodepthOptions:
                                  type=str,
                                  help="normal or shared",
                                  default="separate_resnet",
-                                 choices=["posecnn", "separate_resnet", "shared"])
+                                 choices=["posecnn", "separate_resnet", "shared", "da3_internal"])
         self.parser.add_argument("--depth_model_type",
                                  type=str,
                                  help="depth model type (placeholder)",
@@ -105,7 +104,7 @@ class MonodepthOptions:
                                  type=str,
                                  help="intrinsics model type",
                                  default="mlp_with_pn_bottleneck_ipt",
-                                 choices=["mlp_with_pn_bottleneck_ipt"])
+                                 choices=["mlp_with_pn_bottleneck_ipt", "da3_internal"])
 
         # TRAINING options
         self.parser.add_argument("--model_name",

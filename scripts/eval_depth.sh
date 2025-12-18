@@ -6,6 +6,7 @@
 # mean:&       0.059      &       0.477      &       5.109      &       0.083      &       0.967      &       0.996      &       0.999      \\
 # average inference time: 5.8 ms
 
+#////////////wrongly set learn_intrinsics to True////////////////
 #EndoDAC download_trained
 #  Scaling ratios | med: 211.634 | std: 0.320
 #            abs_rel      |      sq_rel      |        rmse      |    rmse_log      |          a1      |          a2      |          a3      | 
@@ -29,6 +30,7 @@
 # mean:&       0.055      &       0.404      &       4.753      &       0.077      &       0.974      &       0.997      &       0.999      \\
 
 #EndoDAC our_9D_trained: warm up 20k/5k nan depth
+#////////////wrongly set learn_intrinsics to True////////////////
 
 
 
