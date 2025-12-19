@@ -56,25 +56,33 @@ class EndoDepthAnything3NetWrapper(torch.nn.Module):
     Wrapper for EndoDepthAnything3Net to adapt interface for trainer_endoda3.
     Converts between (B, 3, H, W) input/output format and EndoDepthAnything3Net's (B, N, 3, H, W) format.
     Also converts depth to disparity and creates multi-scale outputs.
+    Formats intrinsics and relative poses if cam_dec outputs are available.
     """
-    def __init__(self, model, min_depth=0.1, max_depth=150.0, scales=[0, 1, 2, 3]):
+    def __init__(self, model, min_depth=0.1, max_depth=150.0, scales=[0, 1, 2, 3], 
+                 rot_representation='angle_axis', frame_id=1):
         super().__init__()
         self.model = model
         self.min_depth = min_depth
         self.max_depth = max_depth
         self.scales = scales
+        self.rot_representation = rot_representation
+        self.frame_id = frame_id  # Default frame_id for relative pose outputs
         # Expose lora_type from wrapped model for compatibility
         self.lora_type = getattr(model, 'lora_type', 'none')
         
-    def forward(self, x):
+    def forward(self, x, frame_id=None):
         """
         Forward pass.
         
         Args:
-            x: Input tensor of shape (B, 3, H, W)
+            x: Input tensor of shape (B, 3, H, W) or (B, S, 3, H, W) for multi-frame
+            frame_id: Optional frame_id for relative pose outputs (default: self.frame_id)
             
         Returns:
-            Dictionary with keys ("disp", scale) for each scale
+            Dictionary with keys:
+            - ("disp", scale) for each scale
+            - ("K", 0), ("inv_K", 0) if intrinsics available (from frame 0)
+            - ("translation", 0, frame_id), rotation outputs if multi-frame and extrinsics available
         """
         single_frame_input = True
         if x.dim() == 4:
@@ -88,39 +96,22 @@ class EndoDepthAnything3NetWrapper(torch.nn.Module):
             B, S, C, H, W = x.shape
             x_mv = x
         assert C == 3, f"C shape: {C}"
+        
+        if frame_id is None:
+            frame_id = self.frame_id
+        
         # Forward through EndoDepthAnything3Net
-        # DPT DEPTH: B S H W 1; 
-        # DPT depth_Conf: B S H W 
-
-        # DualDPT DEPTH: B S H W;
-        # DualDPT depth_Conf: B S H W;
-        # DualDPT RAY: B S H W 6;
-        # DualDPT RAY_CONF: B S H W ;
-        # extrinsics: B S 3 4 ;
-        # intrinsics: B S 3 3 ;
-
-        # output is a dict
         output = self.model(x_mv, extrinsics=None, intrinsics=None, 
                            export_feat_layers=[], infer_gs=False, use_ray_pose=False)
         # Depth output: (B, S, H, W) if  DualDPT Head
         # Depth output: (B, S, H, W, 1) if DPT Head
         if isinstance(self.model.head, DPT):
-            # update the dict
-            # B,S,H,W,1 -> B,S,H,W
             output.depth = output.depth.squeeze(-1)
 
-        depth = output.depth # extract key
-
+        depth = output.depth
         assert depth.dim() == 4, f"depth shape: {depth.shape}"
-        assert depth.shape[1] == 1, f"depth shape: {depth.shape}"  
-
-        # Extract depth: output.depth is (B, S, H, W) where S=1 for monocular
-        # print(f"depth shape: {output.depth.shape}")
-        # print(f"conf shape: {output.depth_conf.shape}")
-        # print(f"extrinsics shape: {output.extrinsics.shape}")
-        # print(f"intrinsics shape: {output.intrinsics.shape}")
-        
- 
+        if single_frame_input:
+            assert depth.shape[1] == 1, f"depth shape: {depth.shape}"  
 
         depth_clamped = torch.clamp(depth, min=self.min_depth, max=self.max_depth)
         disp = 1.0 / depth_clamped # (B, S, H, W)
@@ -129,30 +120,124 @@ class EndoDepthAnything3NetWrapper(torch.nn.Module):
         if disp.shape[-2:] != (256, 320):
             disp = F.interpolate(disp, size=(256, 320), mode="bilinear", align_corners=True)
 
-
-
-        # Indrect create multi-scale outputs: not actually enable multi-resolution depth direcly from head 
+        # Create multi-scale disp outputs
         outputs = {}
         for scale in self.scales:
             if scale == 0:
-                # Original scale - already at input resolution
                 outputs[("disp", scale)] = disp
             else:
-                # Downscale for other scales
                 h_scale = H // (2 ** scale)
                 w_scale = W // (2 ** scale)
                 disp_scale = F.interpolate(disp, size=(h_scale, w_scale), 
                                           mode="bilinear", align_corners=True)
                 outputs[("disp", scale)] = disp_scale
         
-        if not single_frame_input:
-            assert 0, 'not tested'
-            # fuse B and S to construct outputs dimension B_S, H, W
-            # then format as the pipeline required dim 1 for channel
-            # B S H W -> B*S 1 H W
-            outputs = {k: v.view(B*S,H, W).unsqueeze(1) for k, v in outputs.items()}
+        # Format intrinsics and pose outputs if available
+        if hasattr(output, 'intrinsics') and output.intrinsics is not None:
+            intrinsics = output.intrinsics
+            # Ensure intrinsics is a tensor
+            if isinstance(intrinsics, torch.Tensor):
+                # Use intrinsics from frame 0 (reference frame)
+                cam_K = intrinsics[:, 0]  # (B, 3, 3)
+                inv_K = torch.inverse(cam_K)
+                outputs[('K', 0)] = cam_K
+                outputs[('inv_K', 0)] = inv_K
+        
+        # Format relative pose if multi-frame and extrinsics available
+        if not single_frame_input and hasattr(output, 'extrinsics') and output.extrinsics is not None:
+            extrinsics = output.extrinsics  # (B, S, 3, 4) - w2c format
+            # Ensure extrinsics is a tensor
+            if isinstance(extrinsics, torch.Tensor) and extrinsics.shape[1] >= 2:
+                # Compute relative pose from frame 0 to frame 1
+                R_0, t_0 = extrinsics[:, 0, :, :3], extrinsics[:, 0, :, 3:4]  # (B, 3, 3), (B, 3, 1)
+                R_fi, t_fi = extrinsics[:, 1, :, :3], extrinsics[:, 1, :, 3:4]  # (B, 3, 3), (B, 3, 1)
+                
+                # Build 4x4 matrices and compute relative: T_rel = inv(T_fi) @ T_0
+                ones_row = torch.zeros(B, 1, 4, device=extrinsics.device, dtype=extrinsics.dtype)
+                ones_row[:, 0, 3] = 1.0
+                T_0 = torch.cat([torch.cat([R_0, t_0], dim=2), ones_row], dim=1)  # (B, 4, 4)
+                T_fi = torch.cat([torch.cat([R_fi, t_fi], dim=2), ones_row], dim=1)  # (B, 4, 4)
+                T_rel = torch.inverse(T_fi) @ T_0  # (B, 4, 4)
+                
+                R_rel = T_rel[:, :3, :3]  # (B, 3, 3)
+                t_rel = T_rel[:, :3, 3:4]  # (B, 3, 1)
+                
+                # Convert rotation matrix to required representation
+                rot_output = self._rot_matrix_to_representation(R_rel, self.rot_representation)
+                rot_output = rot_output.unsqueeze(1)  # (B, 1, M)
+                translation = t_rel.squeeze(-1).unsqueeze(1)  # (B, 1, 3)
+                
+                rot_output = rot_output.unsqueeze(1)
+                translation = translation.unsqueeze(-1)
 
+                # Store outputs
+                outputs[("translation", 0, frame_id)] = translation
+                self._store_pose_outputs_wrapper(outputs, rot_output, translation, self.rot_representation, frame_id)
+        
         return outputs
+    
+    def _rot_matrix_to_representation(self, R, rot_representation):
+        """Convert rotation matrix to required representation.
+        Reuses existing functions from utils.warping where possible.
+        """
+        if rot_representation == "6D":
+            return torch.cat([R[:, :, 0], R[:, :, 1]], dim=1)  # (B, 6)
+        elif rot_representation == "9D":
+            return R.reshape(R.shape[0], -1)  # (B, 9)
+        elif rot_representation == "quat":
+            from depth_anything_3.model.utils.transform import mat_to_quat
+            quat_xyzw = mat_to_quat(R)  # (B, 4) in XYZW format
+            return quat_xyzw[:, :3]  # (B, 3)
+        elif rot_representation == "angle_axis":
+            trace = R[:, 0, 0] + R[:, 1, 1] + R[:, 2, 2]
+            angle = torch.acos(torch.clamp((trace - 1) / 2, -1 + 1e-7, 1 - 1e-7))
+            axis = torch.stack([
+                R[:, 2, 1] - R[:, 1, 2],
+                R[:, 0, 2] - R[:, 2, 0],
+                R[:, 1, 0] - R[:, 0, 1]
+            ], dim=1)
+            axis_norm = torch.norm(axis, dim=1, keepdim=True)
+            axis = axis / (axis_norm + 1e-8)
+            return axis * angle.unsqueeze(-1)  # (B, 3)
+        elif rot_representation == "euler":
+            sy = torch.sqrt(torch.clamp(R[:, 0, 0]**2 + R[:, 1, 0]**2, min=1e-8))
+            singular = sy < 1e-6
+            x = torch.atan2(R[:, 2, 1], R[:, 2, 2])
+            y = torch.atan2(-R[:, 2, 0], sy)
+            z = torch.atan2(R[:, 1, 0], R[:, 0, 0])
+            x[singular] = torch.atan2(-R[singular, 1, 2], R[singular, 1, 1])
+            y[singular] = torch.atan2(-R[singular, 2, 0], sy[singular])
+            z[singular] = 0
+            return torch.stack([x, y, z], dim=1)  # (B, 3)
+        else:
+            raise ValueError(f"Unsupported rotation representation: {rot_representation}")
+    
+    def _store_pose_outputs_wrapper(self, outputs, rot_output, translation, rot_representation, frame_id):
+        """Store pose outputs in wrapper (reuses transformation functions from warping)."""
+        from utils.warping import (
+            transformation_from_parameters,
+            transformation_from_parameters_6D,
+            transformation_from_parameters_9D,
+            transformation_from_parameters_quat,
+            transformation_from_parameters_euler
+        )
+        if rot_representation == "angle_axis":
+            outputs[("axisangle", 0, frame_id)] = rot_output
+            outputs[("cam_T_cam", 0, frame_id)] = transformation_from_parameters(rot_output[:, 0], translation[:, 0])
+        elif rot_representation == "6D":
+            outputs[("rot6d", 0, frame_id)] = rot_output
+            outputs[("cam_T_cam", 0, frame_id)] = transformation_from_parameters_6D(rot_output[:, 0], translation[:, 0])
+        elif rot_representation == "9D":
+            outputs[("rot9d", 0, frame_id)] = rot_output
+            outputs[("cam_T_cam", 0, frame_id)] = transformation_from_parameters_9D(rot_output[:, 0], translation[:, 0])
+        elif rot_representation == "quat":
+            outputs[("quat", 0, frame_id)] = rot_output
+            outputs[("cam_T_cam", 0, frame_id)] = transformation_from_parameters_quat(rot_output[:, 0], translation[:, 0])
+        elif rot_representation == "euler":
+            outputs[("euler", 0, frame_id)] = rot_output
+            outputs[("cam_T_cam", 0, frame_id)] = transformation_from_parameters_euler(rot_output[:, 0], translation[:, 0])
+        else:
+            raise ValueError(f"Unsupported rotation representation: {rot_representation}")
 
 
 class RAFTWrapper(torch.nn.Module):
@@ -162,7 +247,15 @@ class RAFTWrapper(torch.nn.Module):
     """
     def __init__(self, raft_model, scales, max_disp=None):
         super().__init__()
-        self.raft_model = raft_model
+        # Register the RAFT model's underlying PyTorch model as a submodule
+        # so its parameters are accessible through .parameters()
+        if hasattr(raft_model, 'model'):
+            # RAFT wrapper contains a .model attribute which is the actual PyTorch model
+            self.add_module('raft_pytorch_model', raft_model.model)
+        else:
+            # If raft_model is already a PyTorch model, register it directly
+            self.add_module('raft_pytorch_model', raft_model)
+        self.raft_model = raft_model  # Keep reference to RAFT wrapper for forward calls
         self.scales = scales
         self.max_disp = max_disp
         
@@ -265,14 +358,16 @@ class Trainer:
 
         if self.use_pose_net:
             self.construct_pose_model()
-            # Add pose_encoder parameters if it exists
+            # Add pose_encoder parameters if it exists (not for da3_internal)
             if "pose_encoder" in self.models:
                 self.parameters_to_train += list(self.models["pose_encoder"].parameters())
-            self.parameters_to_train += list(self.models["pose"].parameters())
+            if "pose" in self.models:  # pose model doesn't exist for da3_internal
+                self.parameters_to_train += list(self.models["pose"].parameters())
             
             if self.opt.learn_intrinsics:
                 self.construct_k_model()
-                self.parameters_to_train += list(self.models['intrinsics_head'].parameters())
+                if 'intrinsics_head' in self.models:  # intrinsics_head doesn't exist for da3_internal
+                    self.parameters_to_train += list(self.models['intrinsics_head'].parameters())
 
         # Construct of and af models at the end
         self.construct_of_model()
@@ -463,7 +558,8 @@ class Trainer:
             depth_model_base,
             min_depth=self.opt.min_depth,
             max_depth=self.opt.max_depth,
-            scales=self.opt.scales
+            scales=self.opt.scales,
+            rot_representation=getattr(self.opt, 'rot_representation', 'angle_axis')
         )
         self.models["depth_model"].to(self.device)
         
@@ -503,7 +599,7 @@ class Trainer:
 
     def construct_pose_model(self):
         """Construct and initialize the pose model.
-        Supports different pose model types: separate_resnet, shared, posecnn.
+        Supports different pose model types: separate_resnet, shared, posecnn, da3_internal.
         """
         if self.opt.pose_model_type == "separate_resnet":
             self.models["pose_encoder"] = ResnetEncoder(
@@ -528,11 +624,28 @@ class Trainer:
             self.models["pose"] = PoseCNN(
                 self.num_input_frames if self.opt.pose_model_input == "all" else 2)
 
-        self.models["pose"].to(self.device)
+        elif self.opt.pose_model_type == "da3_internal":
+            # Sanity check: depth_model must have cam_dec module
+            depth_model_base = self.models["depth_model"].model
+            if not hasattr(depth_model_base, 'cam_dec') or depth_model_base.cam_dec is None:
+                raise ValueError(
+                    "pose_model_type 'da3_internal' requires depth model to have cam_dec module. "
+                    "Ensure the depth model config includes cam_dec."
+                )
+            # Verify rotation representation matches
+            cam_dec_rot_repr = getattr(depth_model_base.cam_dec, 'rot_representation', 'quat_xyzw')
+            opt_rot_repr = getattr(self.opt, 'rot_representation', 'angle_axis')
+            if cam_dec_rot_repr != opt_rot_repr and cam_dec_rot_repr != "quat_xyzw":
+                print(f"Warning: cam_dec rot_representation ({cam_dec_rot_repr}) != opt rot_representation ({opt_rot_repr}). "
+                      f"Will convert from {cam_dec_rot_repr} to {opt_rot_repr}.")
+            # No pose model needed - will extract from depth model output
+
+        if self.opt.pose_model_type != "da3_internal":
+            self.models["pose"].to(self.device)
 
     def construct_k_model(self):
         """Construct and initialize the intrinsics (K) model.
-        Supports mlp_with_pn_bottleneck_ipt which uses pose network's intermediate feature.
+        Supports mlp_with_pn_bottleneck_ipt and da3_internal.
         """
         if self.opt.k_model_type == "mlp_with_pn_bottleneck_ipt":
             # Sanity check: pose_encoder must exist for this model type
@@ -543,6 +656,15 @@ class Trainer:
                 )
             self.models['intrinsics_head'] = IntrinsicsHead(self.models["pose_encoder"].num_ch_enc)
             self.models['intrinsics_head'].to(self.device)
+        elif self.opt.k_model_type == "da3_internal":
+            # Sanity check: depth_model must have cam_dec module
+            depth_model_base = self.models["depth_model"].model
+            if not hasattr(depth_model_base, 'cam_dec') or depth_model_base.cam_dec is None:
+                raise ValueError(
+                    "k_model_type 'da3_internal' requires depth model to have cam_dec module. "
+                    "Ensure the depth model config includes cam_dec."
+                )
+            # No intrinsics_head needed - will extract from depth model output
         else:
             raise ValueError(f"Unsupported k_model_type: {self.opt.k_model_type}")
 
@@ -597,15 +719,17 @@ class Trainer:
 
         for param in self.models["depth_model"].parameters():
             param.requires_grad = False
-        for param in self.models["pose_encoder"].parameters():
-            param.requires_grad = False
-        for param in self.models["pose"].parameters():
-            param.requires_grad = False
+        if "pose_encoder" in self.models:
+            for param in self.models["pose_encoder"].parameters():
+                param.requires_grad = False
+        if "pose" in self.models:
+            for param in self.models["pose"].parameters():
+                param.requires_grad = False
         for param in self.models["transform_encoder"].parameters():
             param.requires_grad = False
         for param in self.models["transform"].parameters():
             param.requires_grad = False
-        if self.opt.learn_intrinsics:
+        if self.opt.learn_intrinsics and "intrinsics_head" in self.models:
             for param in self.models["intrinsics_head"].parameters():
                 param.requires_grad = False
             
@@ -616,10 +740,11 @@ class Trainer:
         self.models["depth_model"].eval()
         if "pose_encoder" in self.models:
             self.models["pose_encoder"].eval()
-        self.models["pose"].eval()
+        if "pose" in self.models:
+            self.models["pose"].eval()
         self.models["transform_encoder"].eval()
         self.models["transform"].eval()
-        if self.opt.learn_intrinsics:
+        if self.opt.learn_intrinsics and "intrinsics_head" in self.models:
             self.models["intrinsics_head"].eval()
 
     def set_train(self):
@@ -644,15 +769,17 @@ class Trainer:
                                             warm_up=warm_up,
                                             other_trainable=["residual_", "conv_depth_"])
 
-        for param in self.models["pose_encoder"].parameters():
-            param.requires_grad = True
-        for param in self.models["pose"].parameters():
-            param.requires_grad = True
+        if "pose_encoder" in self.models:
+            for param in self.models["pose_encoder"].parameters():
+                param.requires_grad = True
+        if "pose" in self.models:
+            for param in self.models["pose"].parameters():
+                param.requires_grad = True
         for param in self.models["transform_encoder"].parameters():
             param.requires_grad = True
         for param in self.models["transform"].parameters():
             param.requires_grad = True
-        if self.opt.learn_intrinsics:
+        if self.opt.learn_intrinsics and "intrinsics_head" in self.models:
             for param in self.models["intrinsics_head"].parameters():
                 param.requires_grad = True
 
@@ -663,10 +790,11 @@ class Trainer:
         self.models["depth_model"].train()
         if "pose_encoder" in self.models:
             self.models["pose_encoder"].train()
-        self.models["pose"].train()
+        if "pose" in self.models:
+            self.models["pose"].train()
         self.models["transform_encoder"].train()
         self.models["transform"].train()
-        if self.opt.learn_intrinsics:
+        if self.opt.learn_intrinsics and "intrinsics_head" in self.models:
             self.models["intrinsics_head"].train()
 
     def set_eval(self):
@@ -677,11 +805,12 @@ class Trainer:
         self.models["transform"].eval()
         if "pose_encoder" in self.models:
             self.models["pose_encoder"].eval()
-        self.models["pose"].eval()
+        if "pose" in self.models:
+            self.models["pose"].eval()
         if "position_encoder" in self.models:
             self.models["position_encoder"].eval()
         self.models["position"].eval()
-        if self.opt.learn_intrinsics:
+        if self.opt.learn_intrinsics and "intrinsics_head" in self.models:
             self.models["intrinsics_head"].eval()
 
     def train(self):
@@ -974,6 +1103,7 @@ class Trainer:
 
     def predict_poses(self, inputs, disps):
         """Predict poses between input frames for monocular sequences.
+        disps: outputs from depth model
         """
         outputs = {}
         if self.num_pose_frames == 2:
@@ -1028,40 +1158,56 @@ class Trainer:
                         # outputs[("grad_refined", scale, f_i)] = get_gradmap(outputs[("refined", scale, f_i)])
                                                                                             
 
-                    # pose
-                    pose_inputs = [self.models["pose_encoder"](torch.cat(inputs_all, 1))]
-                    rot_output, translation, intermediate_feature = self.models["pose"](pose_inputs, ret_intermediate_feat=True)
-
-                    if self.opt.learn_intrinsics:
-                        cam_K = self.models['intrinsics_head'](
-                        intermediate_feature, self.opt.width, self.opt.height)
-                        inv_K = torch.inverse(cam_K)
-                        outputs[('K', 0)] = cam_K
-                        outputs[('inv_K', 0)] = inv_K
+                    # pose and intrinsics
+                    # Call depth model once if either pose or intrinsics need it
+                    depth_output_dict = None
+                    if self.opt.pose_model_type == "da3_internal" or (self.opt.learn_intrinsics and self.opt.k_model_type == "da3_internal"):
+                        frames_input = torch.stack([pose_feats[0], pose_feats[f_i]], dim=1)  # (B, 2, 3, H, W)
+                        depth_output_dict = self.models["depth_model"](frames_input, frame_id=f_i)
                     
-                    rot_representation = getattr(self.opt, 'rot_representation', 'angle_axis')
-                    if rot_representation == "angle_axis":
-                        outputs[("axisangle", 0, f_i)] = rot_output
-                        outputs[("cam_T_cam", 0, f_i)] = transformation_from_parameters(
-                            rot_output[:, 0], translation[:, 0])
-                    elif rot_representation == "6D":
-                        outputs[("rot6d", 0, f_i)] = rot_output
-                        outputs[("cam_T_cam", 0, f_i)] = transformation_from_parameters_6D(
-                            rot_output[:, 0], translation[:, 0])
-                    elif rot_representation == "9D":
-                        outputs[("rot9d", 0, f_i)] = rot_output
-                        outputs[("cam_T_cam", 0, f_i)] = transformation_from_parameters_9D(
-                            rot_output[:, 0], translation[:, 0])
-                    elif rot_representation == "quat":
-                        outputs[("quat", 0, f_i)] = rot_output
-                        outputs[("cam_T_cam", 0, f_i)] = transformation_from_parameters_quat(
-                            rot_output[:, 0], translation[:, 0])
-                    elif rot_representation == "euler":
-                        outputs[("euler", 0, f_i)] = rot_output
-                        outputs[("cam_T_cam", 0, f_i)] = transformation_from_parameters_euler(
-                            rot_output[:, 0], translation[:, 0])
+                    # Extract pose from wrapper output
+                    if self.opt.pose_model_type == "da3_internal":
+                        # Wrapper already formatted pose outputs, just merge them
+                        if depth_output_dict is None:
+                            raise ValueError("da3_internal pose_model_type requires depth model call. "
+                                           "This should not happen if logic is correct.")
+                        # Merge formatted pose outputs from wrapper (all keys except disp and K/inv_K)
+                        pose_keys = ["translation", "axisangle", "rot6d", "rot9d", "quat", "euler", "cam_T_cam"]
+                        for key, value in depth_output_dict.items():
+                            if isinstance(key, tuple) and len(key) >= 1:
+                                if key[0] in pose_keys:
+                                    outputs[key] = value
                     else:
-                        raise ValueError(f"Unsupported rotation representation: {rot_representation}")
+                        # Original pose prediction logic
+                        pose_inputs = [self.models["pose_encoder"](torch.cat(inputs_all, 1))]
+                        rot_output, translation, intermediate_feature = self.models["pose"](pose_inputs, ret_intermediate_feat=True)
+                        outputs[("translation", 0, f_i)] = translation
+                        
+                        rot_representation = getattr(self.opt, 'rot_representation', 'angle_axis')
+                        self._store_pose_outputs(outputs, rot_output, translation, rot_representation, f_i)
+                    
+                    # Extract intrinsics from wrapper output
+                    if self.opt.learn_intrinsics:
+                        if self.opt.k_model_type == "da3_internal":
+                            # Wrapper already formatted intrinsics, just merge them
+                            if depth_output_dict is None:
+                                raise ValueError("da3_internal k_model_type requires depth model call. "
+                                               "This should not happen if logic is correct.")
+                            if ('K', 0) in depth_output_dict:
+                                outputs[('K', 0)] = depth_output_dict[('K', 0)]
+                                outputs[('inv_K', 0)] = depth_output_dict[('inv_K', 0)]
+                            else:
+                                raise ValueError("da3_internal k_model_type requires depth model to output intrinsics. "
+                                               "Ensure cam_dec is enabled in depth model config.")
+                        else:
+                            # Use intrinsics_head (requires intermediate_feature from pose model)
+                            if self.opt.pose_model_type == "da3_internal":
+                                raise ValueError("k_model_type 'mlp_with_pn_bottleneck_ipt' requires pose_model_type != 'da3_internal'. "
+                                               "Use k_model_type 'da3_internal' when pose_model_type is 'da3_internal'.")
+                            cam_K = self.models['intrinsics_head'](intermediate_feature, self.opt.width, self.opt.height)
+                            inv_K = torch.inverse(cam_K)
+                            outputs[('K', 0)] = cam_K
+                            outputs[('inv_K', 0)] = inv_K
                     
                     # Optionally replace rotation with GT relative rotation if available
                     if self.replace_with_gt_rel_rotation:
@@ -1071,10 +1217,30 @@ class Trainer:
                             gt_tgt2src_rel_poses = torch.inverse(gt_src_abs_poses) @ gt_tgt_abs_poses
                             outputs[("cam_T_cam", 0, f_i)][:, :3, :3] = gt_tgt2src_rel_poses[:, :3, :3]
                             # If desired, translation could also be replaced; keeping network translation for now.
-
-                    outputs[("translation", 0, f_i)] = translation
                     
         return outputs
+
+    def _store_pose_outputs(self, outputs, rot_output, translation, rot_representation, f_i):
+        """Store pose outputs in the correct format based on rotation representation.
+        Reuses existing transformation_from_parameters functions.
+        """
+        if rot_representation == "angle_axis":
+            outputs[("axisangle", 0, f_i)] = rot_output
+            outputs[("cam_T_cam", 0, f_i)] = transformation_from_parameters(rot_output[:, 0], translation[:, 0])
+        elif rot_representation == "6D":
+            outputs[("rot6d", 0, f_i)] = rot_output
+            outputs[("cam_T_cam", 0, f_i)] = transformation_from_parameters_6D(rot_output[:, 0], translation[:, 0])
+        elif rot_representation == "9D":
+            outputs[("rot9d", 0, f_i)] = rot_output
+            outputs[("cam_T_cam", 0, f_i)] = transformation_from_parameters_9D(rot_output[:, 0], translation[:, 0])
+        elif rot_representation == "quat":
+            outputs[("quat", 0, f_i)] = rot_output
+            outputs[("cam_T_cam", 0, f_i)] = transformation_from_parameters_quat(rot_output[:, 0], translation[:, 0])
+        elif rot_representation == "euler":
+            outputs[("euler", 0, f_i)] = rot_output
+            outputs[("cam_T_cam", 0, f_i)] = transformation_from_parameters_euler(rot_output[:, 0], translation[:, 0])
+        else:
+            raise ValueError(f"Unsupported rotation representation: {rot_representation}")
 
     def generate_images_pred(self, inputs, outputs):
         """Generate the warped (reprojected) color images for a minibatch.
@@ -1135,8 +1301,13 @@ class Trainer:
 
                 cam_points = self.backproject_depth[source_scale](
                     depth, inv_K)
+                # Normalize K and T to expected shapes for Project3D
+                # K should be (B, 3, 3) for Project3D
+                cam_K_3x3 = cam_K[:, :3, :3] if cam_K.shape[1] == 4 else cam_K
+                # T should be (B, 3, 4) for Project3D
+                T_3x4 = T[:, :3, :] if T.shape[1] == 4 else T
                 pix_coords = self.project_3d[source_scale](
-                    cam_points, cam_K, T)
+                    cam_points, cam_K_3x3, T_3x4)
 
                 outputs[("sample", frame_id, scale)] = pix_coords
 
@@ -1146,8 +1317,9 @@ class Trainer:
                     padding_mode="border",
                     align_corners=True)
 
+                # Reuse normalized K and T for position_depth (same shape requirement)
                 outputs[("position_depth", scale, frame_id)] = self.position_depth[source_scale](
-                        cam_points, cam_K, T)
+                        cam_points, cam_K_3x3, T_3x4)
 
     def compute_reprojection_loss(self, pred, target):
 
