@@ -138,6 +138,8 @@ class EndoDepthAnything3NetWrapper(torch.nn.Module):
             # Ensure intrinsics is a tensor
             if isinstance(intrinsics, torch.Tensor):
                 # Use intrinsics from frame 0 (reference frame)
+                # make sure ref_view_strategy is "first"
+                assert self.model.ref_view_strategy == "first", f"ref_view_strategy must be 'first' for intrinsics estimates"
                 cam_K = intrinsics[:, 0]  # (B, 3, 3)
                 inv_K = torch.inverse(cam_K)
                 outputs[('K', 0)] = cam_K
@@ -148,16 +150,19 @@ class EndoDepthAnything3NetWrapper(torch.nn.Module):
             extrinsics = output.extrinsics  # (B, S, 3, 4) - w2c format
             # Ensure extrinsics is a tensor
             if isinstance(extrinsics, torch.Tensor) and extrinsics.shape[1] >= 2:
+                assert extrinsics.shape[1] == 2, f"not implemented....now only support pair input for relative pose estimates"
                 # Compute relative pose from frame 0 to frame 1
+                # make sure ref_view_strategy is "first"
+                assert self.model.ref_view_strategy == "first", f"ref_view_strategy must be 'first' for relative pose estimates"
                 R_0, t_0 = extrinsics[:, 0, :, :3], extrinsics[:, 0, :, 3:4]  # (B, 3, 3), (B, 3, 1)
                 R_fi, t_fi = extrinsics[:, 1, :, :3], extrinsics[:, 1, :, 3:4]  # (B, 3, 3), (B, 3, 1)
                 
-                # Build 4x4 matrices and compute relative: T_rel = inv(T_fi) @ T_0
+                # Build 4x4 matrices and compute relative: T_rel = T_fi @ inv(T_0) (for w2c extrinsics)
                 ones_row = torch.zeros(B, 1, 4, device=extrinsics.device, dtype=extrinsics.dtype)
                 ones_row[:, 0, 3] = 1.0
                 T_0 = torch.cat([torch.cat([R_0, t_0], dim=2), ones_row], dim=1)  # (B, 4, 4)
                 T_fi = torch.cat([torch.cat([R_fi, t_fi], dim=2), ones_row], dim=1)  # (B, 4, 4)
-                T_rel = torch.inverse(T_fi) @ T_0  # (B, 4, 4)
+                T_rel = T_fi @ torch.inverse(T_0)  # (B, 4, 4) - relative pose from frame 0 to frame 1
                 
                 R_rel = T_rel[:, :3, :3]  # (B, 3, 3)
                 t_rel = T_rel[:, :3, 3:4]  # (B, 3, 1)
@@ -244,8 +249,9 @@ class RAFTWrapper(torch.nn.Module):
     """
     Wrapper for RAFT to match PositionDecoder interface.
     Generates multi-scale flows from single RAFT output.
+    Supports multi-iteration outputs for different scales.
     """
-    def __init__(self, raft_model, scales, max_disp=None):
+    def __init__(self, raft_model, scales, max_disp=None, use_multi_iters=False, multi_iters=[2,5,8,11]):
         super().__init__()
         # Register the RAFT model's underlying PyTorch model as a submodule
         # so its parameters are accessible through .parameters()
@@ -258,6 +264,17 @@ class RAFTWrapper(torch.nn.Module):
         self.raft_model = raft_model  # Keep reference to RAFT wrapper for forward calls
         self.scales = scales
         self.max_disp = max_disp
+        self.use_multi_iters = use_multi_iters
+        self.multi_iters = multi_iters 
+        
+        # Validate multi_iters if enabled
+        if self.use_multi_iters:
+            assert len(self.multi_iters) == len(self.scales), \
+                f"multi_iters length ({len(self.multi_iters)}) must match scales length ({len(self.scales)})"
+            # Note: iter_idx can be up to num_flow_updates-1 (0-indexed)
+            # The flow_predictions list will have length num_flow_updates
+            assert all(0 <= iter_idx < raft_model.num_flow_updates for iter_idx in self.multi_iters), \
+                f"All multi_iters must be in range [0, {raft_model.num_flow_updates})"
         
     def _sanitize_flow(self, flow):
         """Sanitize flow: remove NaN and Inf values."""
@@ -307,14 +324,52 @@ class RAFTWrapper(torch.nn.Module):
         Returns:
             Dictionary with keys ("position", scale) for each scale
         """
-        flow_base = self.raft_model(framel, framer)  # Returns (B, 2, H, W) tensor
+        if self.use_multi_iters:
+            # Get all iteration outputs
+            flow_predictions = self.raft_model(framel, framer, return_all_iterations=True)
+            # flow_predictions is a list of flows from each iteration
+            
+            outputs = {}
+            # Get base resolution from first flow
+            if len(flow_predictions) > 0:
+                flow_base = flow_predictions[0]
+                B, C, base_h, base_w = flow_base.shape
+                assert C == 2, f"Expected 2-channel flow, got {C}"
+            else:
+                raise ValueError("No flow predictions returned from RAFT")
+            
+            for scale_idx, scale in enumerate(self.scales):
+                # Get flow from specified iteration for this scale
+                iter_idx = self.multi_iters[scale_idx]
+                assert iter_idx < len(flow_predictions), f"iter_idx {iter_idx} is out of range {len(flow_predictions)}"
+                flow_at_iter = flow_predictions[iter_idx]  # (B, 2, H, W)
+                
+                # Scale flow to the appropriate resolution for this scale
+                if scale == 0:
+                    flow = flow_at_iter
+                else:
+                    h_scale = base_h // (2 ** scale)
+                    w_scale = base_w // (2 ** scale)
+                    flow = F.interpolate(flow_at_iter, size=(h_scale, w_scale), 
+                                        mode="bilinear", align_corners=True)
+                    # Scale flow magnitude: when resolution is 1/2^scale, flow is 1/2^scale
+                    flow = flow / (2 ** scale)
+                
+                flow = self._sanitize_flow(flow)
+                # Clamp uses original max_disp scaled by resolution factor
+                flow = self._clamp_flow(flow, scale_factor=1.0 / (2 ** scale) if scale > 0 else 1.0)
+                outputs[("position", scale)] = flow
+        else:
+            # Original behavior: use final flow and generate multi-scale
+            flow_base = self.raft_model(framel, framer)  # Returns (B, 2, H, W) tensor
+            
+            if flow_base.dim() == 3:
+                flow_base = flow_base.unsqueeze(0)
+            B, C, H, W = flow_base.shape
+            assert C == 2, f"Expected 2-channel flow, got {C}"
+            
+            outputs = self._generate_multiscale_flows(flow_base, H, W)
         
-        if flow_base.dim() == 3:
-            flow_base = flow_base.unsqueeze(0)
-        B, C, H, W = flow_base.shape
-        assert C == 2, f"Expected 2-channel flow, got {C}"
-        
-        outputs = self._generate_multiscale_flows(flow_base, H, W)
         return outputs
 
 
@@ -685,14 +740,130 @@ class Trainer:
                 weights="Raft_Large_Weights.DEFAULT",
                 num_flow_updates=getattr(self.opt, 'raft_num_flow_updates', 12)
             )
+            
+            # Set trainable modules for RAFT
+            raft_trainable_modules = getattr(self.opt, 'raft_trainable_modules', [])
+            self._set_raft_trainable_modules(raft_model, raft_trainable_modules)
+            
+            use_multi_iters = getattr(self.opt, 'use_raft_multi_iters', False)
+            multi_iters = getattr(self.opt, 'raft_multi_iters', [2, 5, 8, 11])
+            
             self.models["position"] = RAFTWrapper(
                 raft_model=raft_model,
                 scales=self.opt.scales,
-                max_disp=getattr(self.opt, 'raft_max_disp', None)
+                max_disp=getattr(self.opt, 'raft_max_disp', None),
+                use_multi_iters=use_multi_iters,
+                multi_iters=multi_iters
             )
             self.models["position"].to(self.device)
         else:
             raise ValueError(f"Unsupported of_model_type: {self.opt.of_model_type}")
+    
+    def _set_raft_trainable_modules(self, raft_model, trainable_modules):
+        """
+        Set which RAFT modules are trainable.
+        
+        Args:
+            raft_model: RAFT model instance
+            trainable_modules: List of module names to make trainable.
+                              Examples: ['convnormrelu', 'layer1', 'layer2_0']
+                              Special: 'layer2_0' means first block (index 0) of layer2
+        
+        Raises:
+            AssertionError: If any provided module name cannot be found in the model
+        """
+        # First, freeze all parameters
+        for param in raft_model.model.parameters():
+            param.requires_grad = False
+        
+        if not trainable_modules:
+            # No trainable modules specified, RAFT is completely frozen
+            return
+        
+        # Get the underlying PyTorch model
+        model = raft_model.model
+        
+        # Track which modules were successfully found and unfrozen
+        found_modules = set()
+        
+        # Handle special case: "all"
+        if "all" in trainable_modules:
+            print("Unfreezing all RAFT parameters")
+            for param in model.parameters():
+                param.requires_grad = True
+            return
+        
+        # Build a map of feature_encoder children for efficient lookup
+        feature_encoder_map = {}
+        if hasattr(model, 'feature_encoder'):
+            feature_encoder_map = {name: module for name, module in model.feature_encoder.named_children()}
+        
+        # Process each trainable module
+        for module_name in trainable_modules:
+            # Check if it's a layer_X_Y pattern (e.g., 'layer2_0')
+            if "_" in module_name:
+                parts = module_name.split("_")
+                if len(parts) >= 2:
+                    layer_name = parts[0]
+                    try:
+                        block_idx = int(parts[1])
+                        # Check if layer exists in feature_encoder
+                        if layer_name in feature_encoder_map:
+                            module = feature_encoder_map[layer_name]
+                            if block_idx < len(module):
+                                block = module[block_idx]
+                                print(f"Unfreezing Feature Encoder module: {layer_name}[{block_idx}] ({module_name})")
+                                for p in block.parameters():
+                                    p.requires_grad = True
+                                found_modules.add(module_name)
+                            else:
+                                raise AssertionError(
+                                    f"Block index {block_idx} out of range for '{layer_name}'. "
+                                    f"Available blocks: 0-{len(module)-1}"
+                                )
+                        else:
+                            raise AssertionError(
+                                f"Layer '{layer_name}' not found in feature_encoder. "
+                                f"Available layers: {list(feature_encoder_map.keys())}"
+                            )
+                    except ValueError:
+                        # Not a valid block index pattern, treat as regular module name
+                        pass
+            
+            # Check if it's a full feature_encoder layer name
+            if module_name in feature_encoder_map:
+                if module_name not in found_modules:  # Avoid double-processing
+                    print(f"Unfreezing Feature Encoder module: {module_name}")
+                    for p in feature_encoder_map[module_name].parameters():
+                        p.requires_grad = True
+                    found_modules.add(module_name)
+                continue
+            
+            # Check other top-level modules
+            if module_name == "update_block":
+                if hasattr(model, 'update_block'):
+                    print(f"Unfreezing module: {module_name}")
+                    for param in model.update_block.parameters():
+                        param.requires_grad = True
+                    found_modules.add(module_name)
+                else:
+                    raise AssertionError(f"Module 'update_block' not found in RAFT model")
+            elif module_name == "context_encoder":
+                if hasattr(model, 'context_encoder'):
+                    print(f"Unfreezing module: {module_name}")
+                    for param in model.context_encoder.parameters():
+                        param.requires_grad = True
+                    found_modules.add(module_name)
+                else:
+                    raise AssertionError(f"Module 'context_encoder' not found in RAFT model")
+            elif module_name not in found_modules and "_" not in module_name:
+                # Module not found - check if it was a layer_X_Y pattern that failed
+                # (already handled above with assertion)
+                # If it's a simple name that wasn't found anywhere, raise error
+                raise AssertionError(
+                    f"Module '{module_name}' not found in RAFT model. "
+                    f"Available feature_encoder modules: {list(feature_encoder_map.keys())}"
+                )
 
     def construct_af_model(self):
         """Construct and initialize the affine transform (AF) model.
@@ -714,8 +885,32 @@ class Trainer:
         if "position_encoder" in self.models:
             for param in self.models["position_encoder"].parameters():
                 param.requires_grad = True
-        for param in self.models["position"].parameters():
-            param.requires_grad = True
+        
+        # Handle position model (RAFT or separate_resnet)
+        if self.opt.of_model_type == "raft":
+            # For RAFT, only make trainable modules trainable
+            raft_trainable_modules = getattr(self.opt, 'raft_trainable_modules', [])
+            if raft_trainable_modules:
+                # Get the RAFT model from the wrapper
+                position_model = self.models["position"]
+                if hasattr(position_model, 'raft_model'):
+                    raft_model = position_model.raft_model
+                    # Re-apply trainable modules setting (in case it was changed)
+                    self._set_raft_trainable_modules(raft_model, raft_trainable_modules)
+                # Set wrapper to train mode
+                self.models["position"].train()
+            else:
+                # No trainable modules, but still need to set to train mode for forward pass
+                # Parameters remain frozen
+                self.models["position"].train()
+        else:
+            # separate_resnet: make all parameters trainable
+            for param in self.models["position"].parameters():
+                param.requires_grad = True
+            self.models["position"].train()
+
+        if "position_encoder" in self.models:
+            self.models["position_encoder"].train()
 
         for param in self.models["depth_model"].parameters():
             param.requires_grad = False
@@ -732,10 +927,6 @@ class Trainer:
         if self.opt.learn_intrinsics and "intrinsics_head" in self.models:
             for param in self.models["intrinsics_head"].parameters():
                 param.requires_grad = False
-            
-        if "position_encoder" in self.models:
-            self.models["position_encoder"].train()
-        self.models["position"].train()
 
         self.models["depth_model"].eval()
         if "pose_encoder" in self.models:
@@ -753,8 +944,20 @@ class Trainer:
         if "position_encoder" in self.models:
             for param in self.models["position_encoder"].parameters():
                 param.requires_grad = False
-        for param in self.models["position"].parameters():
-            param.requires_grad = False
+        
+        # Handle position model (RAFT or separate_resnet)
+        if self.opt.of_model_type == "raft":
+            # For RAFT, freeze all parameters (including trainable modules)
+            position_model = self.models["position"]
+            if hasattr(position_model, 'raft_model'):
+                raft_model = position_model.raft_model
+                # Freeze all RAFT parameters
+                for param in raft_model.model.parameters():
+                    param.requires_grad = False
+        else:
+            # separate_resnet: freeze all parameters
+            for param in self.models["position"].parameters():
+                param.requires_grad = False
 
         for name, param in self.models["depth_model"].named_parameters():
             if "seed_" not in name:
@@ -1179,6 +1382,7 @@ class Trainer:
                                     outputs[key] = value
                     else:
                         # Original pose prediction logic
+                        # historical order issue
                         pose_inputs = [self.models["pose_encoder"](torch.cat(inputs_all, 1))]
                         rot_output, translation, intermediate_feature = self.models["pose"](pose_inputs, ret_intermediate_feat=True)
                         outputs[("translation", 0, f_i)] = translation

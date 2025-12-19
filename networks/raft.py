@@ -34,28 +34,54 @@ class RAFT:
 
         return depth
 
-    def __call__(self, framel, framer):
+    def __call__(self, framel, framer, return_all_iterations=False):
         """
         Forward pass through RAFT.
-        Returns final dense flow (B, 2, H, W).
+        
+        Args:
+            framel: Left frame (B, 3, H, W)
+            framer: Right frame (B, 3, H, W)
+            return_all_iterations: If True, returns list of flows from all iterations.
+                                  If False, returns final flow (B, 2, H, W).
+        
+        Returns:
+            If return_all_iterations=False: Final flow (B, 2, H, W)
+            If return_all_iterations=True: List of flows from each iteration
         """
         framel = framel.to(self.device)
         framer = framer.to(self.device)
 
         flow_predictions = self.model(framel, framer)
         
-        # Return the final flow prediction (last iteration)
-        # flow_predictions is a list of flows from each iteration
-        if isinstance(flow_predictions, (list, tuple)):
-            flow = flow_predictions[-1]  # Final flow
+        if return_all_iterations:
+            # Return all iterations
+            if isinstance(flow_predictions, (list, tuple)):
+                # Ensure all flows have correct shape
+                flows = []
+                for flow in flow_predictions:
+                    if flow.dim() == 3:
+                        flow = flow.unsqueeze(0)
+                    flows.append(flow)
+                return flows
+            else:
+                # Single flow prediction, wrap in list
+                flow = flow_predictions
+                if flow.dim() == 3:
+                    flow = flow.unsqueeze(0)
+                return [flow]
         else:
-            flow = flow_predictions
-        
-        # Ensure shape is (B, 2, H, W)
-        if flow.dim() == 3:
-            flow = flow.unsqueeze(0)
-        
-        return flow
+            # Return the final flow prediction (last iteration)
+            # flow_predictions is a list of flows from each iteration
+            if isinstance(flow_predictions, (list, tuple)):
+                flow = flow_predictions[-1]  # Final flow
+            else:
+                flow = flow_predictions
+            
+            # Ensure shape is (B, 2, H, W)
+            if flow.dim() == 3:
+                flow = flow.unsqueeze(0)
+            
+            return flow
 
 if __name__ == "__main__":
     import PIL.Image as pil
@@ -68,6 +94,8 @@ if __name__ == "__main__":
     img1 = img1.unsqueeze(0).to("cuda")
     img2 = img2.unsqueeze(0).to("cuda")
     flow = raft(img1, img2)
+    # print raft model
+    print(raft.model)
 
 
 

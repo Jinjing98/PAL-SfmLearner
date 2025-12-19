@@ -93,8 +93,22 @@ class MonodepthOptions:
                                  default=12)
         self.parser.add_argument("--raft_max_disp",
                                  type=float,
-                                 help="maximum displacement for RAFT flow clamping",
+                                 help="maximum displacement for RAFT flow clamping; if None, no clamping is applied",
                                  default=None)
+        self.parser.add_argument("--raft_trainable_modules",
+                                 nargs="*",
+                                 type=str,
+                                 help="RAFT feature_encoder modules to make trainable (e.g., 'convnormrelu', 'layer1', 'layer2_0'). "
+                                      "Special: 'layer2_0' means first block of layer2. Default [] means RAFT is frozen.",
+                                 default=[])
+        self.parser.add_argument("--use_raft_multi_iters",
+                                 help="if set, uses RAFT multi-iteration outputs for different scales",
+                                 action="store_true")
+        self.parser.add_argument("--raft_multi_iters",
+                                 nargs="+",
+                                 type=int,
+                                 help="RAFT iteration steps to use for each scale (e.g., [2,5,8,11] for 4 scales)",
+                                 default=[2, 5, 8, 11])
         self.parser.add_argument("--af_model_type",
                                  type=str,
                                  help="affine transform model type",
@@ -415,9 +429,39 @@ class MonodepthOptions:
         
         Args:
             args: List of argument strings (e.g., ['--batch_size', '2', '--num_workers', '1'])
+                  For multi-value arguments (nargs="*" or nargs="+"), can pass as:
+                  ['--raft_trainable_modules', 'convnormrelu layer1 layer2_0'] (space-separated)
+                  or ['--raft_trainable_modules', 'convnormrelu', 'layer1', 'layer2_0'] (separate args)
         
         Returns:
             Parsed options object
         """
-        self.options = self.parser.parse_args(args)
+        # Get all actions that accept multiple values (nargs="*" or nargs="+")
+        multi_value_actions = set()
+        for action in self.parser._actions:
+            if action.nargs in ('*', '+') and action.dest != 'help':
+                # Get all option strings for this action
+                for option_string in action.option_strings:
+                    multi_value_actions.add(option_string)
+        
+        # Preprocess args to handle space-separated values for multi-value arguments
+        processed_args = []
+        i = 0
+        while i < len(args):
+            arg = args[i]
+            processed_args.append(arg)
+            
+            # Check if this is a multi-value argument and has a next value
+            if arg in multi_value_actions and i + 1 < len(args):
+                next_arg = args[i + 1]
+                # If next arg is not another option and contains spaces, split it
+                if not next_arg.startswith('-') and ' ' in next_arg:
+                    # Split space-separated string into separate arguments
+                    processed_args.extend(next_arg.split())
+                    i += 1  # Skip the original space-separated string
+                # If it's already separate values, they'll be handled normally
+            
+            i += 1
+        
+        self.options = self.parser.parse_args(processed_args)
         return self.options
