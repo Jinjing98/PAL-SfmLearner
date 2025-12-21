@@ -182,26 +182,36 @@ class MonodepthOptions:
                                  type=float,
                                  help="transform smoothness weight",
                                  default=0.01)
-        self.parser.add_argument("--reconstruction_constraint",
-                                 type=float,
-                                 help="consistency constraint weight",
-                                 default=0.2)
-        self.parser.add_argument("--reflec_constraint",
-                                 type=float,
-                                 help="epipolar constraint weight",
-                                 default=0.2)
-        self.parser.add_argument("--reprojection_constraint",
-                                 type=float,
-                                 help="geometry constraint weight",
-                                 default=1)
-        self.parser.add_argument("--reproj_supervise_type",
+        self.parser.add_argument("--of_supervised_with_which",
                                  type=str,
-                                 help="type of reprojection supervision: 'color_warp' or 'reprojection_color_warp'",
-                                 default="reprojection_color_warp",
-                                 choices=["color_warp", 
-                                 "reprojection_color_warp",
-                                 "afstyle_color_warp",
-                                 "paba_color_warp"])
+                                 help="what to use for optical flow supervision: 'outputs_refined' (outputs['refined']) or 'inputs_color'",
+                                 default="outputs_refined",
+                                 choices=["outputs_refined", "inputs_color"])
+        self.parser.add_argument("--posedepth_supervised_with_which",
+                                 type=str,
+                                 help="what to use for pose/depth supervision: 'outputs_refined' (outputs['refined'])",
+                                 default="outputs_refined",
+                                 choices=["outputs_refined"])
+        # self.parser.add_argument("--reconstruction_constraint",
+        #                          type=float,
+        #                          help="consistency constraint weight",
+        #                          default=0.2)
+        # self.parser.add_argument("--reflec_constraint",
+        #                          type=float,
+        #                          help="epipolar constraint weight",
+        #                          default=0.2)
+        # self.parser.add_argument("--reprojection_constraint",
+        #                          type=float,
+        #                          help="geometry constraint weight",
+        #                          default=1)
+        # self.parser.add_argument("--reproj_supervise_type",
+        #                          type=str,
+        #                          help="type of reprojection supervision: 'color_warp' or 'reprojection_color_warp'",
+        #                          default="reprojection_color_warp",
+        #                          choices=["color_warp", 
+        #                          "reprojection_color_warp",
+        #                          "afstyle_color_warp",
+        #                          "paba_color_warp"])
         self.parser.add_argument("--scales",
                                  nargs="+",
                                  type=int,

@@ -1350,8 +1350,18 @@ class Trainer:
             for frame_id in self.opt.frame_ids[1:]:
                 occu_mask_backward = outputs[("occu_mask_backward", 0, frame_id)].detach()
                 loss_smooth_registration += (get_smooth_loss(outputs[("position", scale, frame_id)], color))
+                
+                # Get supervision target based on of_supervised_with_which
+                of_supervised_with = getattr(self.opt, 'of_supervised_with_which', 'outputs_refined')
+                if of_supervised_with == 'outputs_refined':
+                    supervision_target = outputs[("refined", scale, frame_id)].detach()
+                elif of_supervised_with == 'inputs_color':
+                    supervision_target = inputs[("color", 0, 0)]
+                else:
+                    raise ValueError(f"of_supervised_with_which '{of_supervised_with}' not supported. Options: 'outputs_refined', 'inputs_color'")
+                
                 loss_registration += (
-                    self.compute_reprojection_loss(outputs[("registration", scale, frame_id)], outputs[("refined", scale, frame_id)].detach()) * occu_mask_backward).sum() / occu_mask_backward.sum()
+                    self.compute_reprojection_loss(outputs[("registration", scale, frame_id)], supervision_target) * occu_mask_backward).sum() / occu_mask_backward.sum()
 
             loss += loss_registration / 2.0
             loss += self.opt.position_smoothness * (loss_smooth_registration / 2.0) / (2 ** scale)
@@ -1723,8 +1733,15 @@ class Trainer:
                 
                 occu_mask_backward = outputs[("occu_mask_backward", 0, frame_id)].detach()
                 
+                # Get supervision target based on posedepth_supervised_with_which
+                posedepth_supervised_with = getattr(self.opt, 'posedepth_supervised_with_which', 'outputs_refined')
+                if posedepth_supervised_with == 'outputs_refined':
+                    supervision_target = outputs[("refined", scale, frame_id)]
+                else:
+                    raise ValueError(f"posedepth_supervised_with_which '{posedepth_supervised_with}' not supported. Only 'outputs_refined' is supported.")
+                
                 loss_reprojection += (
-                    self.compute_reprojection_loss(outputs[("color", frame_id, scale)], outputs[("refined", scale, frame_id)]) * occu_mask_backward).sum() / occu_mask_backward.sum()  
+                    self.compute_reprojection_loss(outputs[("color", frame_id, scale)], supervision_target) * occu_mask_backward).sum() / occu_mask_backward.sum()  
                 loss_transform += (
                     torch.abs(outputs[("refined", scale, frame_id)] - outputs[("registration", 0, frame_id)].detach()).mean(1, True) * occu_mask_backward).sum() / occu_mask_backward.sum()
                 loss_cvt += get_smooth_bright(

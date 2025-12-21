@@ -27,9 +27,6 @@ CUDA_VISIBLE_DEVICES=0 python /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLear
 --batch_size 8 \
 --log_frequency 200 \
 --disparity_smoothness 0.01 \
---reconstruction_constraint 0.2 \
---reflec_constraint 0.2 \
---reprojection_constraint 1 \
 --compute_metrics \
 --val_full_eval \
 --train_data_file d6_kf2.txt \
@@ -87,6 +84,7 @@ CUDA_VISIBLE_DEVICES=0 python /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLear
 --log_dir /mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm/endodac_dbg \
 --train_data_file d6_kf2.txt \
 --val_data_file d6_kf2.txt \
+--of_supervised_with_which inputs_color \
 
 #125086 full_endoDA3B_DepthOnly_angleaxis_baseline_LorawarmUp40k_woRes_SingleScale: is infact no lora:None
 #125087 full_endoDA3B_DepthOnly_angleaxis_baseline_LorawarmUp40k_woRes_SingleScale: correcct lora fine tune
