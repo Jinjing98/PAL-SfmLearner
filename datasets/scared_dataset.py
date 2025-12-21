@@ -194,7 +194,7 @@ if __name__ == "__main__":
     from utils import readlines
     
     # Configuration for testing
-    data_path = "/mnt/nct-zfs/TCO-All/SharedDatasets/SCARED_Images_Resized/"
+    data_path = "/mnt/cluster/workspaces/jinjingxu/SCARED_Images_Resized/"
     height = 256
     width = 320
     frame_ids = [0, -1, 1]

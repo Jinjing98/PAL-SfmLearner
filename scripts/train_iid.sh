@@ -31,7 +31,7 @@ CUDA_VISIBLE_DEVICES=0 python \
 --val_data_file val_files.txt \
 --test_data_file test_files.txt \
 --log_dir /mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm/iidsfm \
---data_path /mnt/nct-zfs/TCO-All/SharedDatasets/SCARED_Images_Resized/ \
+--data_path /mnt/cluster/workspaces/jinjingxu/SCARED_Images_Resized/ \
 --train_data_file d6_kf2.txt \
 --val_data_file d6_kf2.txt \
 --exp_suffix d6_kf2_IID_baseline \

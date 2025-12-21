@@ -15,7 +15,7 @@
 CUDA_VISIBLE_DEVICES=0 python /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/evaluate_pose.py \
 --batch_size 1 \
 --dataset endovis \
---data_path /mnt/nct-zfs/TCO-All/SharedDatasets/SCARED_Images_Resized/ \
+--data_path /mnt/cluster/workspaces/jinjingxu/SCARED_Images_Resized/ \
 --load_weights_folder /mnt/cluster/workspaces/jinjingxu/proj/MVP3R/baselines/DARES/af_sfmlearner_weights \
 --load_weights_folder /mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm/iidsfm/d6_kf2_IID_baseline_again_1209_1324/models/weights_29 \
 --load_weights_folder /mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm/iidsfm/d6_kf2_PABA_with_adjustNet_6D_1209_1316/models/weights_29 \

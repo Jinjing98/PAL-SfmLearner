@@ -37,7 +37,7 @@
 # python /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/third_party/EndoDAC/evaluate_depth.py \
 python /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/evaluate_depth_endodac.py \
 --pretrained_path /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/weights/depthanything \
---data_path /mnt/nct-zfs/TCO-All/SharedDatasets/SCARED_Images_Resized/ \
+--data_path /mnt/cluster/workspaces/jinjingxu/SCARED_Images_Resized/ \
 --split endovis \
 --eval_mono \
 --model_type depthanything3 \
@@ -52,7 +52,7 @@ python /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/evaluate_depth_endo
 # cd /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner
 # python /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/evaluate_depth.py \
 # --batch_size 8 \
-# --data_path /mnt/nct-zfs/TCO-All/SharedDatasets/SCARED_Images_Resized/ \
+# --data_path /mnt/cluster/workspaces/jinjingxu/SCARED_Images_Resized/ \
 # --load_weights_folder /mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm/iidsfm/d6_kf2_afstyle_baseline_1205_1515/models/weights_29 \
 # --load_weights_folder /mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm/iidsfm/d6_kf2_PABA_1205_2103/models/weights_29 \
 # --load_weights_folder /mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm/iidsfm/d6_kf2_afstyle_refTgt_baseline_1205_2123/models/weights_29 \

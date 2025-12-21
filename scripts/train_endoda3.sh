@@ -20,7 +20,7 @@
 # /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/networks/endo_da3.py
 
 CUDA_VISIBLE_DEVICES=0 python /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/train_endoda3.py \
---data_path /mnt/nct-zfs/TCO-All/SharedDatasets/SCARED_Images_Resized/ \
+--data_path /mnt/cluster/workspaces/jinjingxu/SCARED_Images_Resized/ \
 --num_workers 2 \
 --num_workers 0 \
 --num_epochs 20 \
@@ -73,20 +73,20 @@ CUDA_VISIBLE_DEVICES=0 python /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLear
 --exp_suffix full_endoDA3B_DepthK_angleaxis001_baseline_LorawarmUp40k_woRes_SingleScale_LearnIntrinsics_fixMINDEPTH_ufzAllRaftLastOnly \
 --learn_intrinsics \
 --raft_trainable_modules all \
-# --raft_trainable_modules convnormrelu layer1 layer2_0 \
-# --enable_seq_inputs \
-# --use_raft_multi_iters \
-# --raft_trainable_modules all \
-# --raft_trainable_modules convnormrelu \
-# --of_samples \
-# --of_samples_num 16 \
-# --save_frequency 1000 \
-# --log_frequency 1 \
-# --num_epochs 20 \
-# --batch_size 2 \
-# --log_dir /mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm/endodac_dbg \
-# --train_data_file d6_kf2.txt \
-# --val_data_file d6_kf2.txt \
+--raft_trainable_modules convnormrelu layer1 layer2_0 \
+--enable_seq_inputs \
+--use_raft_multi_iters \
+--raft_trainable_modules all \
+--raft_trainable_modules convnormrelu \
+--of_samples \
+--of_samples_num 16 \
+--save_frequency 1000 \
+--log_frequency 1 \
+--num_epochs 20 \
+--batch_size 2 \
+--log_dir /mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm/endodac_dbg \
+--train_data_file d6_kf2.txt \
+--val_data_file d6_kf2.txt \
 
 #125086 full_endoDA3B_DepthOnly_angleaxis_baseline_LorawarmUp40k_woRes_SingleScale: is infact no lora:None
 #125087 full_endoDA3B_DepthOnly_angleaxis_baseline_LorawarmUp40k_woRes_SingleScale: correcct lora fine tune

@@ -17,7 +17,7 @@
 
 CUDA_VISIBLE_DEVICES=0 python \
 /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/train_endodac.py \
---data_path /mnt/nct-zfs/TCO-All/SharedDatasets/SCARED_Images_Resized/ \
+--data_path /mnt/cluster/workspaces/jinjingxu/SCARED_Images_Resized/ \
 --num_workers 2 \
 --num_epochs 30 \
 --num_epochs 20 \

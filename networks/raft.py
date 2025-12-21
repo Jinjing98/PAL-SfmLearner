@@ -87,8 +87,8 @@ if __name__ == "__main__":
     import PIL.Image as pil
     import torchvision
     raft = RAFT(device="cuda", weights="Raft_Large_Weights.DEFAULT", num_flow_updates=12)
-    img1_path = "/mnt/nct-zfs/TCO-All/SharedDatasets/SCARED_Images_Resized/dataset1/keyframe3/image_02/data/0000000001.png"
-    img2_path = "/mnt/nct-zfs/TCO-All/SharedDatasets/SCARED_Images_Resized/dataset1/keyframe3/image_02/data/0000000002.png"
+    img1_path = "/mnt/cluster/workspaces/jinjingxu/SCARED_Images_Resized/dataset1/keyframe3/image_02/data/0000000001.png"
+    img2_path = "/mnt/cluster/workspaces/jinjingxu/SCARED_Images_Resized/dataset1/keyframe3/image_02/data/0000000002.png"
     img1 = torchvision.transforms.ToTensor()(pil.open(img1_path))
     img2 = torchvision.transforms.ToTensor()(pil.open(img2_path))
     img1 = img1.unsqueeze(0).to("cuda")
