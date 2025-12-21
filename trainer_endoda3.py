@@ -63,14 +63,13 @@ class EndoDepthAnything3NetWrapper(torch.nn.Module):
     Formats intrinsics and relative poses if cam_dec outputs are available.
     """
     def __init__(self, model, min_depth=0.1, max_depth=150.0, scales=[0, 1, 2, 3], 
-                 rot_representation='angle_axis', frame_id=1):
+                 rot_representation='angle_axis'):
         super().__init__()
         self.model = model
         self.min_depth = min_depth
         self.max_depth = max_depth
         self.scales = scales
         self.rot_representation = rot_representation
-        self.frame_id = frame_id  # Default frame_id for relative pose outputs
         # Expose lora_type from wrapped model for compatibility
         self.lora_type = getattr(model, 'lora_type', 'none')
         
@@ -80,7 +79,7 @@ class EndoDepthAnything3NetWrapper(torch.nn.Module):
         
         Args:
             x: Input tensor of shape (B, 3, H, W) or (B, S, 3, H, W) for multi-frame
-            frame_id: Optional frame_id for relative pose outputs (default: self.frame_id)
+            frame_id: Optional frame_id for relative pose outputs (required if index_in_spatial_S is provided)
             index_in_spatial_S: Optional index in spatial dimension S to extract pose for specific frame_id
             raw_model_output: Optional pre-computed raw model output (for caching, avoids re-calling model)
             
@@ -131,6 +130,8 @@ class EndoDepthAnything3NetWrapper(torch.nn.Module):
             # Extract depth for frame 0 (first frame in spatial dimension)
             depth = depth[:, 0:1, :, :]  # (B, 1, H, W) - keep dim for consistency
 
+        # Exp before 19.Dec improperly use self.min_depth
+        # depth_clamped = torch.clamp(depth, min=self.min_depth, max=self.max_depth)
         depth_clamped = torch.clamp(depth, min=MIN_DEPTH, max=MAX_DEPTH)
         disp = 1.0 / depth_clamped # (B, 1, H, W) for multi-frame, (B, S, H, W) for single-frame
      
@@ -172,9 +173,8 @@ class EndoDepthAnything3NetWrapper(torch.nn.Module):
                 # Only extract pose if index_in_spatial_S is provided (explicit pose extraction)
                 # Otherwise skip - pose will be extracted later in predict_poses() with proper index_in_spatial_S
                 if index_in_spatial_S is not None:
-                    # Set frame_id if not provided (needed for pose output keys)
-                    if frame_id is None:
-                        frame_id = self.frame_id
+                    # frame_id must be provided when extracting pose
+                    assert frame_id is not None, "frame_id must be provided when index_in_spatial_S is not None"
                     
                     # Make sure ref_view_strategy is "first" for deterministic parsing
                     assert self.model.ref_view_strategy == "first", \

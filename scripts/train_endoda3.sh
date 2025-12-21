@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #SBATCH --job-name=end_pose
-#SBATCH --gpus=v100:1   # rtxa5000 p6000 rtx6000 a100 v100 # monst3r requires 48GB each, only a100 supports
+#SBATCH --gpus=a100:1   # rtxa5000 p6000 rtx6000 a100 v100 # monst3r requires 48GB each, only a100 supports
 #SBATCH --nodes=1  # several gpus on one node
 #SBATCH --ntasks-per-node=1 #used for multi gpu training
 #SBATCH --mem=48G #64G #35G#25G  # 20G may cause bus error?   # mem * num_GPUS
@@ -61,19 +61,21 @@ CUDA_VISIBLE_DEVICES=0 python /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLear
 --warm_up_step 40000 \
 --endoda3_model_config /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/networks/configs/endo-da3-depth-wowrapper-default.yaml \
 --endoda3_model_config /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/networks/configs/endo-da3-all-wowrapper-default.yaml \
---pose_model_type separate_resnet \
 --pose_model_type da3_internal \
+--pose_model_type separate_resnet \
 --k_model_type da3_internal \
---of_model_type raft \
 --of_model_type separate_resnet \
+--of_model_type raft \
 --exp_suffix full_endoDA3B_DepthPoseK_quanXYZW001_baseline_LorawarmUp40k_woRes_SingleScale \
 --exp_suffix full_endoDA3B_DepthPoseK_angleaxis001_baseline_LorawarmUp40k_woRes_SingleScale_LearnIntrinsics \
 --exp_suffix full_endoDA3B_DepthPoseK_angleaxis001_baseline_LorawarmUp40k_woRes_SingleScale_RAFT \
 --exp_suffix full_endoDA3B_DepthK_angleaxis001_baseline_LorawarmUp40k_woRes_SingleScale_LearnIntrinsics \
+--exp_suffix full_endoDA3B_DepthK_angleaxis001_baseline_LorawarmUp40k_woRes_SingleScale_LearnIntrinsics_fixMINDEPTH_ufzAllRaftLastOnly \
 --learn_intrinsics \
---enable_seq_inputs \
-# --use_raft_multi_iters \
+--raft_trainable_modules all \
 # --raft_trainable_modules convnormrelu layer1 layer2_0 \
+# --enable_seq_inputs \
+# --use_raft_multi_iters \
 # --raft_trainable_modules all \
 # --raft_trainable_modules convnormrelu \
 # --of_samples \

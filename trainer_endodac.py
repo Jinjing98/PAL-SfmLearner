@@ -80,6 +80,7 @@ class Trainer:
             residual_block_indexes=self.opt.residual_block_indexes,
             include_cls_token=self.opt.include_cls_token)
         self.models["depth_model"].to(self.device)
+        # TODO: check the grad of UV/AB?
         self.parameters_to_train += list(filter(lambda p: p.requires_grad, self.models["depth_model"].parameters()))
 
         self.models["position_encoder"] = ResnetEncoder(
