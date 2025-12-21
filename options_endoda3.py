@@ -119,6 +119,9 @@ class MonodepthOptions:
                                  help="intrinsics model type",
                                  default="mlp_with_pn_bottleneck_ipt",
                                  choices=["mlp_with_pn_bottleneck_ipt", "da3_internal"])
+        self.parser.add_argument("--enable_seq_inputs",
+                                 help="if set, enables sequential multi-frame input mode (requires depth_model_type=depthanything3)",
+                                 action="store_true")
 
         # TRAINING options
         self.parser.add_argument("--model_name",

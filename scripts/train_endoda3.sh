@@ -61,20 +61,21 @@ CUDA_VISIBLE_DEVICES=0 python /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLear
 --warm_up_step 40000 \
 --endoda3_model_config /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/networks/configs/endo-da3-depth-wowrapper-default.yaml \
 --endoda3_model_config /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/networks/configs/endo-da3-all-wowrapper-default.yaml \
---pose_model_type da3_internal \
 --pose_model_type separate_resnet \
+--pose_model_type da3_internal \
 --k_model_type da3_internal \
---of_model_type separate_resnet \
 --of_model_type raft \
+--of_model_type separate_resnet \
 --exp_suffix full_endoDA3B_DepthPoseK_quanXYZW001_baseline_LorawarmUp40k_woRes_SingleScale \
 --exp_suffix full_endoDA3B_DepthPoseK_angleaxis001_baseline_LorawarmUp40k_woRes_SingleScale_LearnIntrinsics \
 --exp_suffix full_endoDA3B_DepthPoseK_angleaxis001_baseline_LorawarmUp40k_woRes_SingleScale_RAFT \
 --exp_suffix full_endoDA3B_DepthK_angleaxis001_baseline_LorawarmUp40k_woRes_SingleScale_LearnIntrinsics \
 --learn_intrinsics \
---use_raft_multi_iters \
---raft_trainable_modules convnormrelu layer1 layer2_0 \
---raft_trainable_modules all \
---raft_trainable_modules convnormrelu \
+--enable_seq_inputs \
+# --use_raft_multi_iters \
+# --raft_trainable_modules convnormrelu layer1 layer2_0 \
+# --raft_trainable_modules all \
+# --raft_trainable_modules convnormrelu \
 # --of_samples \
 # --of_samples_num 16 \
 # --save_frequency 1000 \

@@ -48,6 +48,10 @@ import cv2
 import os
 import torch
 
+# Depth clamping constants (consistent with evaluation)
+MIN_DEPTH = 1e-3
+MAX_DEPTH = 150
+
 splits_dir = os.path.join(os.path.dirname(__file__), "splits")
 
 
@@ -70,13 +74,15 @@ class EndoDepthAnything3NetWrapper(torch.nn.Module):
         # Expose lora_type from wrapped model for compatibility
         self.lora_type = getattr(model, 'lora_type', 'none')
         
-    def forward(self, x, frame_id=None):
+    def forward(self, x, frame_id=None, index_in_spatial_S=None, raw_model_output=None):
         """
         Forward pass.
         
         Args:
             x: Input tensor of shape (B, 3, H, W) or (B, S, 3, H, W) for multi-frame
             frame_id: Optional frame_id for relative pose outputs (default: self.frame_id)
+            index_in_spatial_S: Optional index in spatial dimension S to extract pose for specific frame_id
+            raw_model_output: Optional pre-computed raw model output (for caching, avoids re-calling model)
             
         Returns:
             Dictionary with keys:
@@ -95,14 +101,18 @@ class EndoDepthAnything3NetWrapper(torch.nn.Module):
             assert x.dim() == 5, f"x shape: {x.shape}"
             B, S, C, H, W = x.shape
             x_mv = x
+            # Validate input ordering: frame 0 must be first (for ref_view_strategy='first')
+            # We can infer this from the fact that we're using enable_seq_inputs with frame_ids starting with 0
         assert C == 3, f"C shape: {C}"
         
-        if frame_id is None:
-            frame_id = self.frame_id
-        
         # Forward through EndoDepthAnything3Net
-        output = self.model(x_mv, extrinsics=None, intrinsics=None, 
-                           export_feat_layers=[], infer_gs=False, use_ray_pose=False)
+        # Use cached raw_model_output if provided (for enable_seq_inputs caching)
+        if raw_model_output is not None:
+            output = raw_model_output
+        else:
+            # Call model normally
+            output = self.model(x_mv, extrinsics=None, intrinsics=None, 
+                               export_feat_layers=[], infer_gs=False, use_ray_pose=False)
         # Depth output: (B, S, H, W) if  DualDPT Head
         # Depth output: (B, S, H, W, 1) if DPT Head
         if isinstance(self.model.head, DPT):
@@ -111,10 +121,18 @@ class EndoDepthAnything3NetWrapper(torch.nn.Module):
         depth = output.depth
         assert depth.dim() == 4, f"depth shape: {depth.shape}"
         if single_frame_input:
-            assert depth.shape[1] == 1, f"depth shape: {depth.shape}"  
+            assert depth.shape[1] == 1, f"depth shape: {depth.shape}"
+        
+        # For multi-frame input with ref_view_strategy='first', extract depth for target frame (frame 0)
+        if not single_frame_input:
+            # Ensure ref_view_strategy is 'first' for deterministic frame 0 extraction
+            assert self.model.ref_view_strategy == "first", \
+                f"ref_view_strategy must be 'first' for multi-frame depth extraction, got {self.model.ref_view_strategy}"
+            # Extract depth for frame 0 (first frame in spatial dimension)
+            depth = depth[:, 0:1, :, :]  # (B, 1, H, W) - keep dim for consistency
 
-        depth_clamped = torch.clamp(depth, min=self.min_depth, max=self.max_depth)
-        disp = 1.0 / depth_clamped # (B, S, H, W)
+        depth_clamped = torch.clamp(depth, min=MIN_DEPTH, max=MAX_DEPTH)
+        disp = 1.0 / depth_clamped # (B, 1, H, W) for multi-frame, (B, S, H, W) for single-frame
      
         # Interpolate to match input image size if needed
         if disp.shape[-2:] != (256, 320):
@@ -146,38 +164,55 @@ class EndoDepthAnything3NetWrapper(torch.nn.Module):
                 outputs[('inv_K', 0)] = inv_K
         
         # Format relative pose if multi-frame and extrinsics available
+        # Skip pose extraction if index_in_spatial_S is None (will be handled later in predict_poses)
         if not single_frame_input and hasattr(output, 'extrinsics') and output.extrinsics is not None:
             extrinsics = output.extrinsics  # (B, S, 3, 4) - w2c format
             # Ensure extrinsics is a tensor
             if isinstance(extrinsics, torch.Tensor) and extrinsics.shape[1] >= 2:
-                assert extrinsics.shape[1] == 2, f"not implemented....now only support pair input for relative pose estimates"
-                # Compute relative pose from frame 0 to frame 1
-                # make sure ref_view_strategy is "first"
-                assert self.model.ref_view_strategy == "first", f"ref_view_strategy must be 'first' for relative pose estimates"
-                R_0, t_0 = extrinsics[:, 0, :, :3], extrinsics[:, 0, :, 3:4]  # (B, 3, 3), (B, 3, 1)
-                R_fi, t_fi = extrinsics[:, 1, :, :3], extrinsics[:, 1, :, 3:4]  # (B, 3, 3), (B, 3, 1)
-                
-                # Build 4x4 matrices and compute relative: T_rel = T_fi @ inv(T_0) (for w2c extrinsics)
-                ones_row = torch.zeros(B, 1, 4, device=extrinsics.device, dtype=extrinsics.dtype)
-                ones_row[:, 0, 3] = 1.0
-                T_0 = torch.cat([torch.cat([R_0, t_0], dim=2), ones_row], dim=1)  # (B, 4, 4)
-                T_fi = torch.cat([torch.cat([R_fi, t_fi], dim=2), ones_row], dim=1)  # (B, 4, 4)
-                T_rel = T_fi @ torch.inverse(T_0)  # (B, 4, 4) - relative pose from frame 0 to frame 1
-                
-                R_rel = T_rel[:, :3, :3]  # (B, 3, 3)
-                t_rel = T_rel[:, :3, 3:4]  # (B, 3, 1)
-                
-                # Convert rotation matrix to required representation
-                rot_output = self._rot_matrix_to_representation(R_rel, self.rot_representation)
-                rot_output = rot_output.unsqueeze(1)  # (B, 1, M)
-                translation = t_rel.squeeze(-1).unsqueeze(1)  # (B, 1, 3)
-                
-                rot_output = rot_output.unsqueeze(1)
-                translation = translation.unsqueeze(-1)
+                # Only extract pose if index_in_spatial_S is provided (explicit pose extraction)
+                # Otherwise skip - pose will be extracted later in predict_poses() with proper index_in_spatial_S
+                if index_in_spatial_S is not None:
+                    # Set frame_id if not provided (needed for pose output keys)
+                    if frame_id is None:
+                        frame_id = self.frame_id
+                    
+                    # Make sure ref_view_strategy is "first" for deterministic parsing
+                    assert self.model.ref_view_strategy == "first", \
+                        f"ref_view_strategy must be 'first' for relative pose estimates, got {self.model.ref_view_strategy}"
+                    
+                    # Use explicit index_in_spatial_S
+                    assert 0 <= index_in_spatial_S < extrinsics.shape[1], \
+                        f"index_in_spatial_S ({index_in_spatial_S}) out of range [0, {extrinsics.shape[1]})"
+                    # Frame 0 is always at index 0 (ref_view_strategy='first')
+                    idx_0 = 0
+                    idx_fi = index_in_spatial_S
+                    
+                    # Compute relative pose from frame 0 to frame idx_fi
+                    R_0, t_0 = extrinsics[:, idx_0, :, :3], extrinsics[:, idx_0, :, 3:4]  # (B, 3, 3), (B, 3, 1)
+                    R_fi, t_fi = extrinsics[:, idx_fi, :, :3], extrinsics[:, idx_fi, :, 3:4]  # (B, 3, 3), (B, 3, 1)
+                    
+                    # Build 4x4 matrices and compute relative: T_rel = T_fi @ inv(T_0) (for w2c extrinsics)
+                    ones_row = torch.zeros(B, 1, 4, device=extrinsics.device, dtype=extrinsics.dtype)
+                    ones_row[:, 0, 3] = 1.0
+                    T_0 = torch.cat([torch.cat([R_0, t_0], dim=2), ones_row], dim=1)  # (B, 4, 4)
+                    T_fi = torch.cat([torch.cat([R_fi, t_fi], dim=2), ones_row], dim=1)  # (B, 4, 4)
+                    T_rel = T_fi @ torch.inverse(T_0)  # (B, 4, 4) - relative pose from frame 0 to frame idx_fi
+                    
+                    R_rel = T_rel[:, :3, :3]  # (B, 3, 3)
+                    t_rel = T_rel[:, :3, 3:4]  # (B, 3, 1)
+                    
+                    # Convert rotation matrix to required representation
+                    rot_output = self._rot_matrix_to_representation(R_rel, self.rot_representation)
+                    rot_output = rot_output.unsqueeze(1)  # (B, 1, M)
+                    translation = t_rel.squeeze(-1).unsqueeze(1)  # (B, 1, 3)
+                    
+                    rot_output = rot_output.unsqueeze(1)
+                    translation = translation.unsqueeze(-1)
 
-                # Store outputs
-                outputs[("translation", 0, frame_id)] = translation
-                self._store_pose_outputs_wrapper(outputs, rot_output, translation, self.rot_representation, frame_id)
+                    # Store outputs
+                    outputs[("translation", 0, frame_id)] = translation
+                    self._store_pose_outputs_wrapper(outputs, rot_output, translation, self.rot_representation, frame_id)
+                # else: Skip pose extraction - will be handled later in predict_poses() with proper index_in_spatial_S
         
         return outputs
     
@@ -216,6 +251,63 @@ class EndoDepthAnything3NetWrapper(torch.nn.Module):
             return torch.stack([x, y, z], dim=1)  # (B, 3)
         else:
             raise ValueError(f"Unsupported rotation representation: {rot_representation}")
+    
+    def extract_pose_from_output(self, raw_model_output, frame_id, index_in_spatial_S, B, H, W):
+        """
+        Extract pose from already-computed raw model output without re-calling the model.
+        
+        Args:
+            raw_model_output: Raw output from EndoDepthAnything3Net model
+            frame_id: Frame ID for pose output key
+            index_in_spatial_S: Index in spatial dimension S for frame_id (frame 0 is at index 0)
+            B, H, W: Batch size, height, width
+            
+        Returns:
+            Dictionary with pose outputs for the specified frame_id
+        """
+        outputs = {}
+        
+        # Extract extrinsics if available
+        if hasattr(raw_model_output, 'extrinsics') and raw_model_output.extrinsics is not None:
+            extrinsics = raw_model_output.extrinsics  # (B, S, 3, 4) - w2c format
+            if isinstance(extrinsics, torch.Tensor) and extrinsics.shape[1] >= 2:
+                assert self.model.ref_view_strategy == "first", \
+                    f"ref_view_strategy must be 'first' for relative pose estimates, got {self.model.ref_view_strategy}"
+                
+                # Frame 0 is always at index 0 (ref_view_strategy='first')
+                idx_0 = 0
+                idx_fi = index_in_spatial_S
+                
+                assert 0 <= idx_fi < extrinsics.shape[1], \
+                    f"index_in_spatial_S ({idx_fi}) out of range [0, {extrinsics.shape[1]})"
+                
+                # Compute relative pose from frame 0 to frame idx_fi
+                R_0, t_0 = extrinsics[:, idx_0, :, :3], extrinsics[:, idx_0, :, 3:4]  # (B, 3, 3), (B, 3, 1)
+                R_fi, t_fi = extrinsics[:, idx_fi, :, :3], extrinsics[:, idx_fi, :, 3:4]  # (B, 3, 3), (B, 3, 1)
+                
+                # Build 4x4 matrices and compute relative: T_rel = T_fi @ inv(T_0) (for w2c extrinsics)
+                ones_row = torch.zeros(B, 1, 4, device=extrinsics.device, dtype=extrinsics.dtype)
+                ones_row[:, 0, 3] = 1.0
+                T_0 = torch.cat([torch.cat([R_0, t_0], dim=2), ones_row], dim=1)  # (B, 4, 4)
+                T_fi = torch.cat([torch.cat([R_fi, t_fi], dim=2), ones_row], dim=1)  # (B, 4, 4)
+                T_rel = T_fi @ torch.inverse(T_0)  # (B, 4, 4) - relative pose from frame 0 to frame idx_fi
+                
+                R_rel = T_rel[:, :3, :3]  # (B, 3, 3)
+                t_rel = T_rel[:, :3, 3:4]  # (B, 3, 1)
+                
+                # Convert rotation matrix to required representation
+                rot_output = self._rot_matrix_to_representation(R_rel, self.rot_representation)
+                rot_output = rot_output.unsqueeze(1)  # (B, 1, M)
+                translation = t_rel.squeeze(-1).unsqueeze(1)  # (B, 1, 3)
+                
+                rot_output = rot_output.unsqueeze(1)
+                translation = translation.unsqueeze(-1)
+                
+                # Store outputs
+                outputs[("translation", 0, frame_id)] = translation
+                self._store_pose_outputs_wrapper(outputs, rot_output, translation, self.rot_representation, frame_id)
+        
+        return outputs
     
     def _store_pose_outputs_wrapper(self, outputs, rot_output, translation, rot_representation, frame_id):
         """Store pose outputs in wrapper (reuses transformation functions from warping)."""
@@ -401,6 +493,16 @@ class Trainer:
         self.num_pose_frames = 2 if self.opt.pose_model_input == "pairs" else self.num_input_frames  # 2
 
         assert self.opt.frame_ids[0] == 0, "frame_ids must start with 0"
+        
+        # Validate enable_seq_inputs
+        self.enable_seq_inputs = getattr(self.opt, 'enable_seq_inputs', False)
+        if self.enable_seq_inputs:
+            assert self.opt.depth_model_type == "depthanything3", \
+                f"enable_seq_inputs requires depth_model_type='depthanything3', got '{self.opt.depth_model_type}'"
+            # When enable_seq_inputs is True, we always use multi-frame input
+            # Validate that frame_ids starts with 0
+            assert self.opt.frame_ids[0] == 0, \
+                f"enable_seq_inputs requires frame_ids to start with 0, got {self.opt.frame_ids}"
 
         self.use_pose_net = not (self.opt.use_stereo and self.opt.frame_ids == [0])
 
@@ -1266,10 +1368,39 @@ class Trainer:
         """
         for key, ipt in inputs.items():
             inputs[key] = ipt.to(self.device)
-        outputs = self.models["depth_model"](inputs["color_aug", 0, 0])
+        
+        # Handle enable_seq_inputs: use multi-frame input and cache result
+        cached_depth_output = None
+        cached_raw_model_output = None  # Cache raw model output for pose extraction
+        if self.enable_seq_inputs:
+            # Stack all frames in order specified by frame_ids
+            # frame_ids should start with 0 (validated in __init__)
+            frames_list = [inputs["color_aug", f_i, 0] for f_i in self.opt.frame_ids]
+            frames_input = torch.stack(frames_list, dim=1)  # (B, S, 3, H, W) where S=len(frame_ids)
+            
+            # Call the underlying model directly ONCE to get raw output (for caching)
+            wrapper = self.models["depth_model"]
+            raw_model_output = wrapper.model(
+                frames_input, 
+                extrinsics=None, intrinsics=None,
+                export_feat_layers=[], infer_gs=False, use_ray_pose=False
+            )
+            cached_raw_model_output = raw_model_output
+            
+            # Process through wrapper to get formatted outputs (depth, etc.) using cached raw output
+            # This avoids calling the model again
+            cached_depth_output = self.models["depth_model"](
+                frames_input, 
+                frame_id=None,  # Will be set per frame_id in predict_poses
+                raw_model_output=raw_model_output  # Pass cached output to avoid re-calling model
+            )
+            outputs = cached_depth_output
+        else:
+            # Original behavior: single frame input
+            outputs = self.models["depth_model"](inputs["color_aug", 0, 0])
 
         if self.use_pose_net:
-            outputs.update(self.predict_poses(inputs, outputs))
+            outputs.update(self.predict_poses(inputs, outputs, cached_depth_output=cached_depth_output, cached_raw_model_output=cached_raw_model_output))
 
         self.generate_images_pred(inputs, outputs)
         losses = self.compute_losses(inputs, outputs)
@@ -1304,9 +1435,11 @@ class Trainer:
             # Fallback: use provided intrinsics from inputs
             return inputs[("K", scale)], inputs[("inv_K", scale)]
 
-    def predict_poses(self, inputs, disps):
+    def predict_poses(self, inputs, disps, cached_depth_output=None, cached_raw_model_output=None):
         """Predict poses between input frames for monocular sequences.
         disps: outputs from depth model
+        cached_depth_output: Cached depth model output when enable_seq_inputs is True
+        cached_raw_model_output: Cached raw frames input when enable_seq_inputs is True (for pose extraction)
         """
         outputs = {}
         if self.num_pose_frames == 2:
@@ -1362,11 +1495,44 @@ class Trainer:
                                                                                             
 
                     # pose and intrinsics
-                    # Call depth model once if either pose or intrinsics need it
+                    # da3_internal means using depthanything3's internal pose/K decoder
+                    # When enable_seq_inputs is True, use cached output. Otherwise, call model per frame pair.
                     depth_output_dict = None
-                    if self.opt.pose_model_type == "da3_internal" or (self.opt.learn_intrinsics and self.opt.k_model_type == "da3_internal"):
-                        frames_input = torch.stack([pose_feats[0], pose_feats[f_i]], dim=1)  # (B, 2, 3, H, W)
-                        depth_output_dict = self.models["depth_model"](frames_input, frame_id=f_i)
+                    need_da3_output = (self.opt.pose_model_type == "da3_internal" or 
+                                      (self.opt.learn_intrinsics and self.opt.k_model_type == "da3_internal"))
+                    
+                    if need_da3_output:
+                        if self.enable_seq_inputs and cached_raw_model_output is not None:
+                            # Extract pose/K from cached raw model output without re-calling the model
+                            if f_i in self.opt.frame_ids:
+                                index_in_spatial_S = self.opt.frame_ids.index(f_i)
+                                B = pose_feats[0].shape[0]
+                                H, W = pose_feats[0].shape[2], pose_feats[0].shape[3]
+                                # Extract pose directly from cached raw model output
+                                depth_output_dict = self.models["depth_model"].extract_pose_from_output(
+                                    cached_raw_model_output,
+                                    frame_id=f_i,
+                                    index_in_spatial_S=index_in_spatial_S,
+                                    B=B, H=H, W=W
+                                )
+                                # Also extract intrinsics if needed
+                                if self.opt.learn_intrinsics and self.opt.k_model_type == "da3_internal":
+                                    if hasattr(cached_raw_model_output, 'intrinsics') and cached_raw_model_output.intrinsics is not None:
+                                        intrinsics = cached_raw_model_output.intrinsics
+                                        if isinstance(intrinsics, torch.Tensor):
+                                            wrapper = self.models["depth_model"]
+                                            assert wrapper.model.ref_view_strategy == "first", \
+                                                f"ref_view_strategy must be 'first' for intrinsics estimates"
+                                            cam_K = intrinsics[:, 0]  # (B, 3, 3)
+                                            inv_K = torch.inverse(cam_K)
+                                            depth_output_dict[('K', 0)] = cam_K
+                                            depth_output_dict[('inv_K', 0)] = inv_K
+                            else:
+                                raise ValueError(f"frame_id {f_i} not found in frame_ids {self.opt.frame_ids}")
+                        else:
+                            # Original behavior: call depth model per frame pair (when enable_seq_inputs is False)
+                            frames_input = torch.stack([pose_feats[0], pose_feats[f_i]], dim=1)  # (B, 2, 3, H, W)
+                            depth_output_dict = self.models["depth_model"](frames_input, frame_id=f_i)
                     
                     # Extract pose from wrapper output
                     if self.opt.pose_model_type == "da3_internal":
@@ -1669,10 +1835,39 @@ class Trainer:
         """
         for key, ipt in inputs.items():
             inputs[key] = ipt.to(self.device)
-        outputs = self.models["depth_model"](inputs["color_aug", 0, 0])
+        
+        # Handle multi-frame input mode (enable_seq_inputs)
+        if self.enable_seq_inputs:
+            # Stack all frames in order specified by frame_ids
+            frames_list = [inputs["color_aug", f_i, 0] for f_i in self.opt.frame_ids]
+            frames_input = torch.stack(frames_list, dim=1)  # (B, S, 3, H, W) where S=len(frame_ids)
+            
+            # Call the underlying model directly ONCE to get raw output (for caching)
+            wrapper = self.models["depth_model"]
+            raw_model_output = wrapper.model(
+                frames_input, 
+                extrinsics=None, intrinsics=None,
+                export_feat_layers=[], infer_gs=False, use_ray_pose=False
+            )
+            cached_raw_model_output = raw_model_output
+            
+            # Process through wrapper to get formatted outputs (depth, etc.) using cached raw output
+            cached_depth_output = self.models["depth_model"](
+                frames_input, 
+                frame_id=None,  # Will be set per frame_id in predict_poses
+                raw_model_output=raw_model_output  # Pass cached output to avoid re-calling model
+            )
+            outputs = cached_depth_output
+        else:
+            # Original behavior: single frame input
+            outputs = self.models["depth_model"](inputs["color_aug", 0, 0])
+            cached_raw_model_output = None
+            cached_depth_output = None
 
         if self.use_pose_net:
-            outputs.update(self.predict_poses(inputs, outputs))
+            outputs.update(self.predict_poses(inputs, outputs, 
+                                             cached_depth_output=cached_depth_output if self.enable_seq_inputs else None,
+                                             cached_raw_model_output=cached_raw_model_output if self.enable_seq_inputs else None))
 
         self.generate_images_pred(inputs, outputs)
         losses = self.compute_losses_val(inputs, outputs)
