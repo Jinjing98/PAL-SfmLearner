@@ -203,14 +203,10 @@ class MonoDataset(data.Dataset):
 
         # adjusting intrinsics to match each scale in the pyramid
         for scale in range(self.num_scales):
-            if getattr(self, 'debug_use_true_scale', False):
-                K = self.K_true_scale.copy()
-                K[0, :] //= (2 ** scale)
-                K[1, :] //= (2 ** scale)
-            else:
-                K = self.K.copy()
-                K[0, :] *= self.width // (2 ** scale)
-                K[1, :] *= self.height // (2 ** scale)
+
+            K = self.K.copy()
+            K[0, :] *= self.width // (2 ** scale)
+            K[1, :] *= self.height // (2 ** scale)
 
             inv_K = np.linalg.pinv(K)
 

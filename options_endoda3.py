@@ -316,6 +316,9 @@ class MonodepthOptions:
         self.parser.add_argument("--val_full_eval",
                                  help="if set, run validation on the full val set instead of a single batch",
                                  action="store_true")
+        self.parser.add_argument("--use_perframe_gt_K",
+                                 help="if set, uses per-frame GT K matrices (K_per_frame) instead of default K",
+                                 action="store_true")
 
         # LOADING options
         self.parser.add_argument("--load_weights_folder",

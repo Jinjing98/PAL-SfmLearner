@@ -25,6 +25,8 @@ from .dataset_utils import (
     map_traj_search_SCARED_DEPTH,
     get_gt_poses,
     get_poses_for_frames,
+    get_gt_Ks,
+    get_k_for_frames,
 )
 from .metrics import compute_depth_metrics
 from .visualise import (

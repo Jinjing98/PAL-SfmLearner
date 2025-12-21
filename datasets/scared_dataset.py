@@ -10,6 +10,8 @@ from .mono_dataset import MonoDataset
 from utils import (
     get_gt_poses,
     get_poses_for_frames,
+    get_gt_Ks,
+    get_k_for_frames,
 )
 
 DEFAULT_D7K4_SCENE_POINTS_DIR='/mnt/nct-zfs/TCO-All/SharedDatasets/SCARED_Depth/dataset_7/keyframe_4/data/scene_points'
@@ -24,23 +26,11 @@ class SCAREDDataset(MonoDataset):
                            [0, 1.02, 0.5, 0],
                            [0, 0, 1, 0],
                            [0, 0, 0, 1]], dtype=np.float32)
+        
 
-        #///////////////////////////////////////////////
-        # we take the abs K of d6_kf2 with 256,320 for example
-        self.debug_use_true_scale = True
-        self.debug_use_true_scale = False
-        self.K_true_scale_raw = np.array([
-                           [1086.97, 0, 586.08, 0],
-                           [0, 1086.77, 512.48, 0],
-                           [0, 0, 1, 0],
-                           [0, 0, 0, 1]], dtype=np.float32)
-        raw_height, raw_width = 1024, 1280
-        x_scale, y_scale = self.width / raw_width, self.height / raw_height
-        self.K_true_scale = self.K_true_scale_raw * np.array([[x_scale, 0, x_scale, 0],
-                                              [0, y_scale, y_scale, 0],
-                                              [0, 0, 1, 0],
-                                              [0, 0, 0, 1]], dtype=np.float32)
-        #///////////////////////////////////////////////
+        self.gt_Ks_dict_registered = {}
+
+
 
         # self.full_res_shape = (1280, 1024)
         self.side_map = {"2": 2, "3": 3, "l": 2, "r": 3}
@@ -73,10 +63,12 @@ class SCAREDDataset(MonoDataset):
 
 
 class SCAREDRAWDataset(SCAREDDataset):
-    def __init__(self, *args, load_gt_poses=True, **kwargs):
+    def __init__(self, *args, load_gt_poses=True, load_gt_Ks=True, **kwargs):
         super(SCAREDRAWDataset, self).__init__(*args, **kwargs)
         self.load_gt_poses = load_gt_poses
+        self.load_gt_Ks = load_gt_Ks
         self.traj_data_root = DATA_PATH
+        self.K_data_root = DEPTH_PATH
         self.trans_scale_gt_traj = 1000  # m to mm
         if self.load_gt_poses:
             self.trajs_dict = get_gt_poses(
@@ -85,6 +77,12 @@ class SCAREDRAWDataset(SCAREDDataset):
                 trans_scale=self.trans_scale_gt_traj
             )
             print(f"Loaded {len(self.trajs_dict)} trajectories")
+        if self.load_gt_Ks:
+            self.gt_Ks_dict_registered = get_gt_Ks(
+                self.filenames,
+                self.K_data_root
+            )
+            print(f"Loaded {len(self.gt_Ks_dict_registered)} camera intrinsics")
 
     def get_image_path(self, folder, frame_index, side):
         f_str = "{:010d}{}".format(frame_index, self.img_ext)
@@ -129,6 +127,7 @@ class SCAREDRAWDataset(SCAREDDataset):
         depth_path = None
 
         from utils import map_traj_search, map_traj_search_SCARED_DEPTH
+
         traj_folder = map_traj_search(folder, DATA_PATH)
         depth_path = os.path.join(traj_folder, 'data', 'scene_points', f_str)
         # depth_path = os.path.join(depth_folder, 'data', f_str)
@@ -168,12 +167,14 @@ class SCAREDRAWDataset(SCAREDDataset):
             # Convert to tensor and add channel dimension: (1, H_gt, W_gt)
             inputs[("depth_gt", 0, 0)] = torch.from_numpy(np.expand_dims(gt_depth, 0).astype(np.float32))
 
+        # Parse folder from filename
+        line = self.filenames[index].split()
+        assert len(line) == 3, 'Expected 3 elements in line: {}'.format(line)
+        folder = line[0]
+        frame_index = int(line[1])
+        
         # Load GT poses if enabled
         if getattr(self, "load_gt_poses", False):
-            line = self.filenames[index].split()
-            assert len(line) == 3, 'Expected 3 elements in line: {}'.format(line)
-            folder = line[0]
-            frame_index = int(line[1])
             # SCARED trajectories are 0-indexed, images start at 1 => offset -1
             offset = -1
             for i in self.frame_idxs:
@@ -182,6 +183,39 @@ class SCAREDRAWDataset(SCAREDDataset):
                 inputs[("gt_c2w_poses", i)] = torch.from_numpy(
                     get_poses_for_frames(self.trajs_dict, folder, [frame_index + i], offset=offset)
                 )
+        
+        # Load GT K if enabled
+        if getattr(self, "load_gt_Ks", False):
+            # Get GT K (3x3) for this folder - this is in pixel coordinates for raw resolution (1024x1280)
+            K_gt_3x3_raw = get_k_for_frames(self.gt_Ks_dict_registered, folder)  # (3, 3)
+            
+            # Scale from raw resolution to current resolution
+            raw_height, raw_width = 1024, 1280
+            x_scale, y_scale = self.width / raw_width, self.height / raw_height
+            
+            # Scale 3x3 K: fx and cx scale by x_scale, fy and cy scale by y_scale
+            K_gt_3x3 = K_gt_3x3_raw.copy()
+            K_gt_3x3[0, :] *= x_scale  # fx, 0, cx
+            K_gt_3x3[1, :] *= y_scale  # 0, fy, cy
+            
+            # Convert to 4x4
+            K_gt_4x4 = np.eye(4, dtype=np.float32)
+            K_gt_4x4[:3, :3] = K_gt_3x3
+            
+            # Process K for each scale and frame_id, save as K_per_frame (like poses)
+            for scale in range(self.num_scales):
+                K = K_gt_4x4.copy()
+                K[0, :] //= (2 ** scale)
+                K[1, :] //= (2 ** scale)
+                
+                inv_K = np.linalg.pinv(K)
+                
+                # Save K for each frame_id (like poses)
+                for i in self.frame_idxs:
+                    if i == "s":
+                        continue
+                    inputs[("K_per_frame", i, scale)] = torch.from_numpy(K)
+                    inputs[("inv_K_per_frame", i, scale)] = torch.from_numpy(inv_K)
         
         return inputs
 
@@ -200,15 +234,15 @@ if __name__ == "__main__":
     frame_ids = [0, -1, 1]
     split = "endovis"
     iterate_through_all_files = True
-    iterate_through_all_files = False
+    # iterate_through_all_files = False
     
     # Read validation filenames
     splits_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "splits")
     val_fpath = os.path.join(splits_dir, split, "val_files.txt")
     val_fpath = os.path.join(splits_dir, split, "d6_kf2.txt")
+    val_fpath = os.path.join(splits_dir, split, "d6_kf2.txt")
     val_fpath = os.path.join(splits_dir, split, "test_files.txt")
     val_fpath = os.path.join(splits_dir, split, "train_files.txt")
-    val_fpath = os.path.join(splits_dir, split, "d6_kf2.txt")
     
     if not os.path.exists(val_fpath):
         print("Error: Validation split file not found at {}".format(val_fpath))
@@ -226,7 +260,8 @@ if __name__ == "__main__":
         val_dataset = SCAREDRAWDataset(
             data_path, val_filenames, height, width,
             frame_ids, 4, is_train=False, img_ext='.png',
-            load_gt_poses=False
+            load_gt_poses=False,# we can not load gt poses for d7k4 in test.txt
+            load_gt_Ks=True,
         )
         print("Dataset created successfully!")
         # print("GT depths loaded: {}".format(val_dataset.gt_depths_val is not None))
@@ -265,7 +300,28 @@ if __name__ == "__main__":
                 else:
                     print("WARNING: ('depth_gt', 0, 0) not found in sample!")
                     print("  Available keys: {}".format(list(sample.keys())))
-                
+
+                # check the loaded pose and K
+                if ("gt_c2w_poses", 0) in sample:
+                    gt_c2w_poses = sample[("gt_c2w_poses", 0)]
+                    print("GT pose loaded successfully!")
+                    print("  Shape: {}".format(gt_c2w_poses.shape))
+                    print("  Type: {}".format(type(gt_c2w_poses)))
+                    print("  Dtype: {}".format(gt_c2w_poses.dtype))
+                    print("  GT pose: \n{}".format(gt_c2w_poses))
+                else:
+                    print("WARNING: ('gt_c2w_poses', 0) not found in sample!")
+
+                if ("K_per_frame", 0, 0) in sample:
+                    K_per_frame = sample[("K_per_frame",0, 0)]
+                    print("GT K loaded successfully!")
+                    print("  Shape: {}".format(K_per_frame.shape))
+                    print("  Type: {}".format(type(K_per_frame)))
+                    print("  Dtype: {}".format(K_per_frame.dtype))
+                    print("  GT K: \n{}".format(K_per_frame))
+
+                else:
+                    print("WARNING: ('K_per_frame', 0) not found in sample!")
             except Exception as e:
                 print("Error loading sample: {}".format(e))
                 import traceback

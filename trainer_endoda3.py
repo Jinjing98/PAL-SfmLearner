@@ -627,7 +627,7 @@ class Trainer:
         test_dataset = self.dataset(
             self.opt.data_path, test_filenames, self.opt.height, self.opt.width,
             self.opt.frame_ids, 4, is_train=False, img_ext=img_ext,
-            load_gt_poses=False)
+            load_gt_poses=False,)
         self.test_loader = DataLoader(
             test_dataset, 1, False,
             num_workers=1, pin_memory=True, drop_last=True,)
@@ -1422,10 +1422,13 @@ class Trainer:
         Get camera intrinsics K and inv_K for a given scale.
         Priority: learn_intrinsics (predicted) > learnable_K (optimizable) > inputs
         """
-        if self.opt.learn_intrinsics and ('K', scale) in outputs:
+        # if self.opt.learn_intrinsics and ('K', scale) in outputs:
+        if self.opt.learn_intrinsics:
+            assert ('K', scale) in outputs, f"K for scale {scale} not found in outputs"
             # Use predicted intrinsics from intrinsics_head
             return outputs[('K', scale)], outputs[('inv_K', scale)]
         elif self.learnable_K:
+            assert 0, 'disabled...'
             # Build normalized K using differentiable operations for proper gradient flow
             K_norm = torch.cat([
                 torch.cat([self.learnable_K_params, torch.zeros(3, 1, device=self.device, dtype=torch.float32)], dim=1),
@@ -1444,6 +1447,35 @@ class Trainer:
         else:
             # Fallback: use provided intrinsics from inputs
             return inputs[("K", scale)], inputs[("inv_K", scale)]
+
+    def get_K_invK_perframe(self, inputs, outputs, scale, batch_size, frame_id):
+        """
+        Get per-frame camera intrinsics K and inv_K for a given scale and frame_id.
+        Uses K_per_frame from inputs when use_perframe_gt_K is enabled.
+        
+        Args:
+            inputs: Input dictionary
+            outputs: Output dictionary
+            scale: Scale level
+            batch_size: Batch size
+            frame_id: Frame ID to get K for
+        """
+        assert frame_id == 0,'we only need k/inv_k for target frame f0'
+        if self.opt.learn_intrinsics:
+            # by default the learned K is perframe!
+            assert ("K", 0) in outputs, f"K for frame_id={frame_id}, scale={scale} not found in outputs"
+            return outputs[("K", 0)], outputs[("inv_K", 0)]
+            # assert ("K_per_frame", frame_id, scale) in outputs, f"K_per_frame for frame_id={frame_id}, scale={scale} not found in outputs"
+            # return outputs[("K_per_frame", frame_id, scale)], outputs[("inv_K_per_frame", frame_id, scale)]
+        else:
+            if ("K_per_frame", frame_id, scale) in inputs:
+                K = inputs[("K_per_frame", frame_id, scale)]
+                inv_K = inputs[("inv_K_per_frame", frame_id, scale)]
+                assert K.shape == (batch_size, 4, 4), f"K shape should be (batch_size, 4, 4), but got {K.shape}"
+                return K, inv_K
+            else:
+                raise KeyError(f"K_per_frame for frame_id={frame_id}, scale={scale} not found in inputs. "
+                            f"Available keys: {[k for k in inputs.keys() if 'K' in str(k)]}")
 
     def predict_poses(self, inputs, disps, cached_depth_output=None, cached_raw_model_output=None):
         """Predict poses between input frames for monocular sequences.
@@ -1640,7 +1672,12 @@ class Trainer:
             outputs[("depth", 0, scale)] = depth
 
             source_scale = 0
-            cam_K, inv_K = self.get_K_invK(inputs, outputs, source_scale, depth.shape[0])
+            # Use per-frame K if enabled, otherwise use regular K
+            if getattr(self.opt, 'use_perframe_gt_K', False):
+                # Get K for frame 0 (depth is from frame 0)
+                cam_K, inv_K = self.get_K_invK_perframe(inputs, outputs, source_scale, depth.shape[0], frame_id=0)# obtain the K for target frame f0
+            else:
+                cam_K, inv_K = self.get_K_invK(inputs, outputs, source_scale, depth.shape[0])
             for i, frame_id in enumerate(self.opt.frame_ids[1:]):
 
                 if frame_id == "s":
