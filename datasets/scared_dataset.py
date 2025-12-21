@@ -63,10 +63,13 @@ class SCAREDDataset(MonoDataset):
 
 
 class SCAREDRAWDataset(SCAREDDataset):
-    def __init__(self, *args, load_gt_poses=True, load_gt_Ks=True, **kwargs):
+    def __init__(self, *args, load_gt_poses=True, load_gt_Ks=True, load_gt_depth=False, depth_offline_loading=False, **kwargs):
+        # Set load_gt_depth before super().__init__() so check_depth() can access it
+        self.load_gt_depth = load_gt_depth
         super(SCAREDRAWDataset, self).__init__(*args, **kwargs)
         self.load_gt_poses = load_gt_poses
         self.load_gt_Ks = load_gt_Ks
+        self.depth_offline_loading = depth_offline_loading
         self.traj_data_root = DATA_PATH
         self.K_data_root = DEPTH_PATH
         self.trans_scale_gt_traj = 1000  # m to mm
@@ -83,6 +86,23 @@ class SCAREDRAWDataset(SCAREDDataset):
                 self.K_data_root
             )
             print(f"Loaded {len(self.gt_Ks_dict_registered)} camera intrinsics")
+        
+        # Load GT depths from npz file if depth_offline_loading is True
+        if self.depth_offline_loading and self.load_gt_depth:
+            splits_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "splits")
+            gt_path = os.path.join(splits_dir, 'endovis', "gt_depths.npz")
+            if os.path.exists(gt_path):
+                print("Loading GT depths from {}".format(gt_path))
+                self.gt_depths_val = np.load(gt_path, fix_imports=True, encoding='latin1')["data"]
+                assert len(self.gt_depths_val) == len(self.filenames), "Number of GT depth maps does not match number of filenames"
+                print("Loaded {} GT depth maps".format(len(self.gt_depths_val)))
+            else:
+                print("WARNING: GT depths file not found at {}. Online loading will be used.".format(gt_path))
+                self.gt_depths_val = None
+
+    def check_depth(self):
+        # Hard-controlled load_gt_depth parameter
+        return self.load_gt_depth
 
     def get_image_path(self, folder, frame_index, side):
         f_str = "{:010d}{}".format(frame_index, self.img_ext)
@@ -241,8 +261,8 @@ if __name__ == "__main__":
     val_fpath = os.path.join(splits_dir, split, "val_files.txt")
     val_fpath = os.path.join(splits_dir, split, "d6_kf2.txt")
     val_fpath = os.path.join(splits_dir, split, "d6_kf2.txt")
-    val_fpath = os.path.join(splits_dir, split, "test_files.txt")
     val_fpath = os.path.join(splits_dir, split, "train_files.txt")
+    val_fpath = os.path.join(splits_dir, split, "test_files.txt")
     
     if not os.path.exists(val_fpath):
         print("Error: Validation split file not found at {}".format(val_fpath))
@@ -262,6 +282,8 @@ if __name__ == "__main__":
             frame_ids, 4, is_train=False, img_ext='.png',
             load_gt_poses=False,# we can not load gt poses for d7k4 in test.txt
             load_gt_Ks=True,
+            load_gt_depth=True,
+            depth_offline_loading=os.path.basename(val_fpath) == 'test_files.txt',  # Load from gt_depths.npz when test_files.txt for perfect alignment
         )
         print("Dataset created successfully!")
         # print("GT depths loaded: {}".format(val_dataset.gt_depths_val is not None))

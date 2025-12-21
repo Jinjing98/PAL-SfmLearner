@@ -624,6 +624,8 @@ class Trainer:
             self.opt.data_path, val_filenames, self.opt.height, self.opt.width,
             self.opt.frame_ids, 4, is_train=False, img_ext=img_ext,
             load_gt_poses=os.path.basename(val_fpath) != 'test_files.txt',# there is missing GT for d7k4 where a lot of test samples are
+            load_gt_depth=True,
+            depth_offline_loading=os.path.basename(val_fpath) == 'test_files.txt',  # Load from gt_depths.npz when test_files.txt for perfect alignment
             )
         self.val_loader = DataLoader(
             val_dataset, self.opt.batch_size, False,
@@ -632,6 +634,7 @@ class Trainer:
             self.opt.data_path, test_filenames, self.opt.height, self.opt.width,
             self.opt.frame_ids, 4, is_train=False, img_ext=img_ext,
             load_gt_poses=os.path.basename(test_fpath) != 'test_files.txt',# there is missing GT for d7k4 where a lot of test samples are
+            load_gt_depth=True,
             )
         self.test_loader = DataLoader(
             test_dataset, 1, False,
