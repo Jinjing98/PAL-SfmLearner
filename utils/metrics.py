@@ -247,7 +247,7 @@ def compute_pose_metrics(inputs, outputs, frame_ids, ret_raw=False):
     if ("gt_c2w_poses", 0) not in inputs:
         if ret_raw:
             return metrics_dict, metrics_trans_ang_raw_dict, metrics_rot_err_raw_dict
-        return metrics_dict,
+        return metrics_dict
     
     # Get GT absolute poses for target frame (frame 0)
     gt_tgt_abs_poses = inputs[("gt_c2w_poses", 0)]  # (B, 4, 4)

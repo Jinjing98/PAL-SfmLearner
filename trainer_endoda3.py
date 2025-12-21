@@ -614,20 +614,25 @@ class Trainer:
         shuffle = not getattr(self.opt, 'of_samples', False)  # Fixed order for overfitting
         train_dataset = self.dataset(
             self.opt.data_path, train_filenames, self.opt.height, self.opt.width,
-            self.opt.frame_ids, 4, is_train=True, img_ext=img_ext)
+            self.opt.frame_ids, 4, is_train=True, img_ext=img_ext,
+            load_gt_poses=os.path.basename(train_fpath) != 'test_files.txt',# there is missing GT for d7k4 where a lot of test samples are
+            )
         self.train_loader = DataLoader(
             train_dataset, self.opt.batch_size, shuffle,
             num_workers=self.opt.num_workers, pin_memory=True, drop_last=True)
         val_dataset = self.dataset(
             self.opt.data_path, val_filenames, self.opt.height, self.opt.width,
-            self.opt.frame_ids, 4, is_train=False, img_ext=img_ext)
+            self.opt.frame_ids, 4, is_train=False, img_ext=img_ext,
+            load_gt_poses=os.path.basename(val_fpath) != 'test_files.txt',# there is missing GT for d7k4 where a lot of test samples are
+            )
         self.val_loader = DataLoader(
             val_dataset, self.opt.batch_size, False,
             num_workers=1, pin_memory=True, drop_last=True)
         test_dataset = self.dataset(
             self.opt.data_path, test_filenames, self.opt.height, self.opt.width,
             self.opt.frame_ids, 4, is_train=False, img_ext=img_ext,
-            load_gt_poses=False,)
+            load_gt_poses=os.path.basename(test_fpath) != 'test_files.txt',# there is missing GT for d7k4 where a lot of test samples are
+            )
         self.test_loader = DataLoader(
             test_dataset, 1, False,
             num_workers=1, pin_memory=True, drop_last=True,)
@@ -1846,7 +1851,7 @@ class Trainer:
                         _accum_raw(metrics_rot_err_raw_accum, rot_err_metrics_raw)
             # Average accumulated metrics
             metrics = {k: sum(v_list) / len(v_list) for k, v_list in metrics_accum.items()} if metrics_accum else None
-            if report_quantile_pose_err:
+            if report_quantile_pose_err and metrics_trans_ang_err_raw_accum:
                 q = [0.25,0.5,0.75]
                 for q_i in q:
                     metrics_trans_ang_err_raw = {k + f'_Q{q_i}': np.quantile(v, q_i) for k, v in metrics_trans_ang_err_raw_accum.items()} if metrics_trans_ang_err_raw_accum else None
