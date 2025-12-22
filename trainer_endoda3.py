@@ -25,7 +25,7 @@ from networks.raft import RAFT
 
 from utils.utils_optic_flow import get_occu_mask_backward, get_occu_mask_bidirection, optical_flow
 from utils.metrics import compute_depth_metrics, compute_pose_metrics, compute_depth_errors
-from utils.util import set_seed, readlines, normalize_image, sec_to_hm_str, disp_to_depth
+from utils.util import set_seed, readlines, normalize_image, sec_to_hm_str, disp_to_depth_v2
 from utils.warping import (
     transformation_from_parameters,
     transformation_from_parameters_6D,
@@ -63,13 +63,15 @@ class EndoDepthAnything3NetWrapper(torch.nn.Module):
     Formats intrinsics and relative poses if cam_dec outputs are available.
     """
     def __init__(self, model, min_depth=0.1, max_depth=150.0, scales=[0, 1, 2, 3], 
-                 rot_representation='angle_axis'):
+                 rot_representation='angle_axis',
+                 da3_depth_regression_target='depth2disp'):
         super().__init__()
         self.model = model
         self.min_depth = min_depth
         self.max_depth = max_depth
         self.scales = scales
         self.rot_representation = rot_representation
+        self.da3_depth_regression_target = da3_depth_regression_target
         # Expose lora_type from wrapped model for compatibility
         self.lora_type = getattr(model, 'lora_type', 'none')
         
@@ -114,42 +116,84 @@ class EndoDepthAnything3NetWrapper(torch.nn.Module):
                                export_feat_layers=[], infer_gs=False, use_ray_pose=False)
         # Depth output: (B, S, H, W) if  DualDPT Head
         # Depth output: (B, S, H, W, 1) if DPT Head
+        head = self.model.head
         if isinstance(self.model.head, DPT):
-            output.depth = output.depth.squeeze(-1)
+            if head.head_main == "depth":
+                output.depth = output.depth.squeeze(-1)
+            elif head.head_main == "disp":
+                output.disp = output.disp.squeeze(-1)
+        if self.da3_depth_regression_target == "depth2disp":
+            assert head.head_main == "depth", f"Expected head_main='depth' for depth2disp regression, but got head_main='{head.head_main}'"
+            assert head.activation == "sigmoid", f"Expected activation='sigmoid' for depth2disp regression, but got activation='{head.activation}'"
+            
+            depth = output.depth
+            assert depth.dim() == 4, f"depth shape: {depth.shape}"
+            if single_frame_input:
+                assert depth.shape[1] == 1, f"depth shape: {depth.shape}"
+            
+            # For multi-frame input with ref_view_strategy='first', extract depth for target frame (frame 0)
+            if not single_frame_input:
+                # Ensure ref_view_strategy is 'first' for deterministic frame 0 extraction
+                assert self.model.ref_view_strategy == "first", \
+                    f"ref_view_strategy must be 'first' for multi-frame depth extraction, got {self.model.ref_view_strategy}"
+                # Extract depth for frame 0 (first frame in spatial dimension)
+                depth = depth[:, 0:1, :, :]  # (B, 1, H, W) - keep dim for consistency
 
-        depth = output.depth
-        assert depth.dim() == 4, f"depth shape: {depth.shape}"
-        if single_frame_input:
-            assert depth.shape[1] == 1, f"depth shape: {depth.shape}"
+            # Exp before 19.Dec improperly use self.min_depth
+            # depth_clamped = torch.clamp(depth, min=self.min_depth, max=self.max_depth)
+            depth_clamped = torch.clamp(depth, min=MIN_DEPTH, max=MAX_DEPTH)
+            disp = 1.0 / depth_clamped # (B, 1, H, W) for multi-frame, (B, S, H, W) for single-frame
         
-        # For multi-frame input with ref_view_strategy='first', extract depth for target frame (frame 0)
-        if not single_frame_input:
-            # Ensure ref_view_strategy is 'first' for deterministic frame 0 extraction
-            assert self.model.ref_view_strategy == "first", \
-                f"ref_view_strategy must be 'first' for multi-frame depth extraction, got {self.model.ref_view_strategy}"
-            # Extract depth for frame 0 (first frame in spatial dimension)
-            depth = depth[:, 0:1, :, :]  # (B, 1, H, W) - keep dim for consistency
+            # Interpolate to match input image size if needed
+            if disp.shape[-2:] != (256, 320):
+                disp = F.interpolate(disp, size=(256, 320), mode="bilinear", align_corners=True)
 
-        # Exp before 19.Dec improperly use self.min_depth
-        # depth_clamped = torch.clamp(depth, min=self.min_depth, max=self.max_depth)
-        depth_clamped = torch.clamp(depth, min=MIN_DEPTH, max=MAX_DEPTH)
-        disp = 1.0 / depth_clamped # (B, 1, H, W) for multi-frame, (B, S, H, W) for single-frame
-     
-        # Interpolate to match input image size if needed
-        if disp.shape[-2:] != (256, 320):
-            disp = F.interpolate(disp, size=(256, 320), mode="bilinear", align_corners=True)
+            # Create multi-scale disp outputs
+            outputs = {}
+            for scale in self.scales:
+                if scale == 0:
+                    outputs[("disp", scale)] = disp
+                else:
+                    h_scale = H // (2 ** scale)
+                    w_scale = W // (2 ** scale)
+                    disp_scale = F.interpolate(disp, size=(h_scale, w_scale), 
+                                            mode="bilinear", align_corners=True)
+                    outputs[("disp", scale)] = disp_scale
+        elif self.da3_depth_regression_target == "disp":
+            # Sanity checks: verify head configuration matches disp regression
+            assert head.head_main == "disp", f"Expected head_main='disp' for disp regression, but got head_main='{head.head_main}'"
+            assert head.activation == "sigmoid", f"Expected activation='sigmoid' for disp regression, but got activation='{head.activation}'"
 
-        # Create multi-scale disp outputs
-        outputs = {}
-        for scale in self.scales:
-            if scale == 0:
-                outputs[("disp", scale)] = disp
-            else:
-                h_scale = H // (2 ** scale)
-                w_scale = W // (2 ** scale)
-                disp_scale = F.interpolate(disp, size=(h_scale, w_scale), 
-                                          mode="bilinear", align_corners=True)
-                outputs[("disp", scale)] = disp_scale
+            disp = output.disp
+            
+            assert disp.dim() == 4, f"Expected disp shape (B, S, H, W), but got shape: {disp.shape}"
+
+            if single_frame_input:
+                assert disp.shape[1] == 1, f"disp shape: {disp.shape}"
+            
+            # For multi-frame input with ref_view_strategy='first', extract disp for target frame (frame 0)
+            if not single_frame_input:
+                # Ensure ref_view_strategy is 'first' for deterministic frame 0 extraction
+                assert self.model.ref_view_strategy == "first", \
+                    f"ref_view_strategy must be 'first' for multi-frame disp extraction, got {self.model.ref_view_strategy}"
+                # Extract disp for frame 0 (first frame in spatial dimension)
+                disp = disp[:, 0:1, :, :]  # (B, 1, H, W) - keep dim for consistency
+            
+            # Interpolate to match input image size if needed
+            if disp.shape[-2:] != (256, 320):
+                disp = F.interpolate(disp, size=(256, 320), mode="bilinear", align_corners=True)
+            
+            # Create multi-scale disp outputs
+            outputs = {}
+            for scale in self.scales:
+                if scale == 0:
+                    outputs[("disp", scale)] = disp
+                else:
+                    h_scale = H // (2 ** scale)
+                    w_scale = W // (2 ** scale)
+                    disp_scale = F.interpolate(disp, size=(h_scale, w_scale), 
+                                              mode="bilinear", align_corners=True)
+                    outputs[("disp", scale)] = disp_scale
         
         # Format intrinsics and pose outputs if available
         if hasattr(output, 'intrinsics') and output.intrinsics is not None:
@@ -743,59 +787,63 @@ class Trainer:
         """Construct and initialize the depth model from config file.
         Loads pretrained weights if specified in options.
         """
-        # Initialize EndoDepthAnything3Net from config file
-        endoda3_model_config_path = self.opt.endoda3_model_config 
-        assert os.path.exists(endoda3_model_config_path), f"Config file not found: {endoda3_model_config_path}"
-        print(f"Loading depth model setting from config: {endoda3_model_config_path}")
-        endoda3_model_config = load_config(endoda3_model_config_path)
-        # Store config for saving later
-        self.endoda3_model_config = endoda3_model_config
-        self.endoda3_model_config_path = endoda3_model_config_path
-        depth_model_base = create_object(endoda3_model_config)
-        
-        # Wrap the model to adapt interface
-        self.models["depth_model"] = EndoDepthAnything3NetWrapper(
-            depth_model_base,
-            min_depth=self.opt.min_depth,
-            max_depth=self.opt.max_depth,
-            scales=self.opt.scales,
-            rot_representation=getattr(self.opt, 'rot_representation', 'angle_axis')
-        )
-        self.models["depth_model"].to(self.device)
-        
-        # Load pretrained weights if requested
-        if self.opt.pretrained_path is not None:
-            print("\n" + "="*60)
-            print(f"Loading pretrained weights from {self.opt.pretrained_path}")
-            print("="*60)
+        if self.opt.depth_model_type == "depthanything3":
+            # Initialize EndoDepthAnything3Net from config file
+            endoda3_model_config_path = self.opt.endoda3_model_config 
+            assert os.path.exists(endoda3_model_config_path), f"Config file not found: {endoda3_model_config_path}"
+            print(f"Loading depth model setting from config: {endoda3_model_config_path}")
+            endoda3_model_config = load_config(endoda3_model_config_path)
+            # Store config for saving later
+            self.endoda3_model_config = endoda3_model_config
+            self.endoda3_model_config_path = endoda3_model_config_path
+            depth_model_base = create_object(endoda3_model_config)
             
-            model_pretrained = DepthAnything3.from_pretrained(self.opt.pretrained_path)
-            model_pretrained = model_pretrained.to(device=self.device)
-            
-            # Get the underlying model from the wrapper
-            model_to_load = depth_model_base
-            
-            # Determine if cam_dec should be disabled based on rotation representation
-            disable_cam_dec = []
-            if hasattr(model_to_load, 'cam_dec') and model_to_load.cam_dec is not None:
-                if hasattr(model_to_load.cam_dec, 'rot_representation'):
-                    if model_to_load.cam_dec.rot_representation != "quat_xyzw":
-                        disable_cam_dec = ["cam_dec"]
-            
-            # Load pretrained weights
-            load_pretrained_weights(
-                model=model_to_load,
-                pretrained_model=model_pretrained,
-                model_name="depth_model",
-                remove_prefixes=["model.", "pretrained."],
-                disable_modules=disable_cam_dec,
-                strict=False,
-                max_levels=3,
-                verbose=False
+            # Wrap the model to adapt interface
+            self.models["depth_model"] = EndoDepthAnything3NetWrapper(
+                depth_model_base,
+                min_depth=self.opt.min_depth,
+                max_depth=self.opt.max_depth,
+                scales=self.opt.scales,
+                rot_representation=getattr(self.opt, 'rot_representation', 'angle_axis'),
+                da3_depth_regression_target=getattr(self.opt, 'da3_depth_regression_target', 'depth2disp')
             )
-            print(f"Successfully loaded pretrained weights from {self.opt.pretrained_path} for depth net.\n")
+            self.models["depth_model"].to(self.device)
+            
+            # Load pretrained weights if requested
+            if self.opt.pretrained_path is not None:
+                print("\n" + "="*60)
+                print(f"Loading pretrained weights from {self.opt.pretrained_path}")
+                print("="*60)
+                
+                model_pretrained = DepthAnything3.from_pretrained(self.opt.pretrained_path)
+                model_pretrained = model_pretrained.to(device=self.device)
+                
+                # Get the underlying model from the wrapper
+                model_to_load = depth_model_base
+                
+                # Determine if cam_dec should be disabled based on rotation representation
+                disable_cam_dec = []
+                if hasattr(model_to_load, 'cam_dec') and model_to_load.cam_dec is not None:
+                    if hasattr(model_to_load.cam_dec, 'rot_representation'):
+                        if model_to_load.cam_dec.rot_representation != "quat_xyzw":
+                            disable_cam_dec = ["cam_dec"]
+                
+                # Load pretrained weights
+                load_pretrained_weights(
+                    model=model_to_load,
+                    pretrained_model=model_pretrained,
+                    model_name="depth_model",
+                    remove_prefixes=["model.", "pretrained."],
+                    disable_modules=disable_cam_dec,
+                    strict=False,
+                    max_levels=3,
+                    verbose=False
+                )
+                print(f"Successfully loaded pretrained weights from {self.opt.pretrained_path} for depth net.\n")
+            else:
+                assert False, "scratch training?"
         else:
-            assert False, "scratch training?"
+            raise ValueError(f"Unsupported depth_model_type: {self.opt.depth_model_type}")
 
     def construct_pose_model(self):
         """Construct and initialize the pose model.
@@ -1732,17 +1780,19 @@ class Trainer:
         Generated images are saved into the `outputs` dictionary.
         """
         for scale in self.opt.scales:
-            
-            disp = outputs[("disp", scale)]
-            if self.opt.v1_multiscale:
-                source_scale = scale
+            if self.opt.da3_depth_regression_target in ["disp", "depth2disp"]:
+                disp = outputs[("disp", scale)]
+                if self.opt.v1_multiscale:
+                    source_scale = scale
+                else:
+                    disp = F.interpolate(
+                        disp, [self.opt.height, self.opt.width], mode="bilinear", align_corners=True)
+
+                _, depth = disp_to_depth_v2(disp, self.opt.min_depth, self.opt.max_depth, 
+                                            is_scaled_disp= (self.opt.da3_depth_regression_target == "depth2disp")) # sigmoid output is in range [0, 1]
+                outputs[("depth", 0, scale)] = depth # only used for metric computation;
             else:
-                disp = F.interpolate(
-                    disp, [self.opt.height, self.opt.width], mode="bilinear", align_corners=True)
-
-            _, depth = disp_to_depth(disp, self.opt.min_depth, self.opt.max_depth)
-
-            outputs[("depth", 0, scale)] = depth
+                raise ValueError(f"Unsupported depth regression target: {self.opt.da3_depth_regression_target}")
 
             source_scale = 0
             # Use per-frame K if enabled, otherwise use regular K

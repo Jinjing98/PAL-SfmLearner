@@ -58,6 +58,23 @@ def disp_to_depth(disp, min_depth, max_depth):
     depth = 1 / scaled_disp
     return scaled_disp, depth
 
+def disp_to_depth_v2(disp, min_depth, max_depth, is_scaled_disp):
+    """Convert network's sigmoid output into depth prediction
+    The formula for this conversion is given in the 'additional considerations'
+    section of the paper.
+    """
+    if is_scaled_disp:
+        # already in reasonable range w.r.t min_depth and max_depth
+        scaled_disp = disp
+    else:
+        assert disp.min() >= 0 and disp.max() <= 1, "disp should be in range [0, 1]"
+        # sigmoid output is in range [0, 1]
+        min_disp = 1 / max_depth
+        max_disp = 1 / min_depth
+        scaled_disp = min_disp + (max_disp - min_disp) * disp
+    depth = 1 / scaled_disp
+    return scaled_disp, depth
+
 
 def upsample(x):
     """Upsample input tensor by a factor of 2

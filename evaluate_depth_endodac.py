@@ -21,7 +21,7 @@ import datasets
 import third_party.EndoDAC.models.encoders as encoders
 import third_party.EndoDAC.models.decoders as decoders
 import third_party.EndoDAC.models.endodac as endodac
-from utils.util import readlines, disp_to_depth
+from utils.util import readlines, disp_to_depth, disp_to_depth_v2
 from utils.metrics import compute_depth_errors
 
 import sys
@@ -179,7 +179,7 @@ def evaluate(opt):
                     output = depther(input_color)
                     inference_time = time.time() - time_start
                     output_disp = output[("disp", 0)]
-                    pred_disp, _ = disp_to_depth(output_disp, opt.min_depth, opt.max_depth)
+                    pred_disp, _ = disp_to_depth_v2(output_disp, opt.min_depth, opt.max_depth, is_scaled_disp=False)
                     pred_disp = pred_disp.cpu()[:, 0].numpy()
                     pred_disp = pred_disp[0]
                 elif opt.model_type == 'depthanything3':

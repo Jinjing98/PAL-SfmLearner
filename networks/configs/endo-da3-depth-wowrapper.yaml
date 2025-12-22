@@ -53,6 +53,8 @@ net:
 #   output_dim: 2
 #   features: &head_features 128
 #   out_channels: &head_out_channels [96, 192, 384, 768]
+#   activation: "exp"
+#   head_names: ["depth", "depth_conf"]
 
 # dpt head: the output shape from the head differs from DualDPT Head: (B, S, H, W, 1) instead of (B, S, H, W)
 head:
@@ -66,6 +68,8 @@ head:
   output_dim: 2
   norm_type: "layer"
   pos_embed: True
+  activation: "exp"
+  head_name: "depth"
 
   # below param enable train naive depth-only DPT from scratch
   # dim_in: &head_dim_in 768 # as cat_token is False

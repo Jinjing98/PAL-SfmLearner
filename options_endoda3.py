@@ -82,6 +82,11 @@ class MonodepthOptions:
                                  help="depth model type (placeholder)",
                                  default="depthanything3",
                                  choices=["depthanything3"])
+        self.parser.add_argument("--da3_depth_regression_target",
+                                 type=str,
+                                 help="depth regression target",
+                                 default="depth2disp",
+                                 choices=["disp", "depth2disp"])
         self.parser.add_argument("--of_model_type",
                                  type=str,
                                  help="optical flow model type",

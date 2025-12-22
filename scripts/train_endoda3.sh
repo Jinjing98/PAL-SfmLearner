@@ -58,10 +58,12 @@ CUDA_VISIBLE_DEVICES=0 python /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLear
 --warm_up_step 40000 \
 --endoda3_model_config /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/networks/configs/endo-da3-depth-wowrapper-default.yaml \
 --endoda3_model_config /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/networks/configs/endo-da3-all-wowrapper-default.yaml \
+--endoda3_model_config /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/networks/configs/endo-da3-all-wowrapper.yaml \
 --pose_model_type da3_internal \
 --pose_model_type separate_resnet \
 --k_model_type da3_internal \
 --learn_intrinsics \
+--da3_depth_regression_target depth2disp \
 --of_model_type separate_resnet \
 --of_model_type raft \
 --exp_suffix full_endoDA3B_DepthPoseK_quanXYZW001_baseline_LorawarmUp40k_woRes_SingleScale \
@@ -86,10 +88,11 @@ CUDA_VISIBLE_DEVICES=0 python /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLear
 --train_data_file test_files.txt \
 --val_data_file test_files.txt \
 --val_data_file test_files_sequence1_val.txt \
---val_data_file test_files.txt \
 --val_data_file test_files.txt test_files_sequence1_val.txt test_files_sequence2_val.txt \
+--val_data_file test_files.txt \
 --of_supervised_with_which inputs_color \
 --use_perframe_gt_K \
+--da3_depth_regression_target disp \
 
 #125086 full_endoDA3B_DepthOnly_angleaxis_baseline_LorawarmUp40k_woRes_SingleScale: is infact no lora:None
 #125087 full_endoDA3B_DepthOnly_angleaxis_baseline_LorawarmUp40k_woRes_SingleScale: correcct lora fine tune

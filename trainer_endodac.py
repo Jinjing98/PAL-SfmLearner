@@ -443,7 +443,7 @@ class Trainer:
                 
                 # log pose metrics during trn
                 if getattr(self.opt, 'compute_pose_metrics', False):
-                    pose_metrics, *pose_metrics_raw = compute_pose_metrics(inputs, outputs, self.opt.frame_ids)
+                    pose_metrics = compute_pose_metrics(inputs, outputs, self.opt.frame_ids)
                     if pose_metrics:
                         metrics.update(pose_metrics)
 
@@ -912,9 +912,8 @@ class Trainer:
                         depth_metrics = compute_depth_metrics(inputs, outputs)
                         if depth_metrics:
                             _accum(metrics_accum, depth_metrics)
-
                     if getattr(self.opt, 'compute_pose_metrics', False):
-                        pose_metrics, *pose_metrics_raw = compute_pose_metrics(inputs, outputs, self.opt.frame_ids)
+                        pose_metrics = compute_pose_metrics(inputs, outputs, self.opt.frame_ids)
                         if pose_metrics:
                             _accum(metrics_accum, pose_metrics)
 
