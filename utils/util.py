@@ -228,33 +228,21 @@ def create_dataset_from_file_or_list(file_or_list, splits_dir, dataset_class, da
         # Create dataset for this file
         # Check if dataset class accepts load_gt_poses, load_gt_depth, depth_offline_loading
         # Some datasets (like in trainer_endodac) may not support all these parameters
-        try:
-            # Try with all parameters first (for trainer_endoda3)
-            dataset = dataset_class(
-                data_path, filenames, height, width,
-                frame_ids, num_input_images, is_train=is_train, img_ext=img_ext,
-                load_gt_poses=load_gt_poses,
-                load_gt_depth=load_gt_depth,
-                depth_offline_loading=depth_offline_loading,
-            )
-        except TypeError:
-            # Fallback: try without optional parameters (for trainer_endodac)
-            try:
-                dataset = dataset_class(
-                    data_path, filenames, height, width,
-                    frame_ids, num_input_images, is_train=is_train, img_ext=img_ext,
-                    load_gt_poses=load_gt_poses,
-                )
-            except TypeError:
-                # Final fallback: minimal parameters
-                dataset = dataset_class(
-                    data_path, filenames, height, width,
-                    frame_ids, num_input_images, is_train=is_train, img_ext=img_ext,
-                )
+        dataset = dataset_class(
+            data_path, filenames, height, width,
+            frame_ids, num_input_images, is_train=is_train, img_ext=img_ext,
+            load_gt_poses=load_gt_poses,
+            load_gt_depth=load_gt_depth,
+            depth_offline_loading=depth_offline_loading,
+        )
+
         
         datasets_list.append(dataset)
         total_samples += len(dataset)
-        print(f"  Loaded {len(dataset)} samples from {f}")
+        print(f"  Loaded {len(dataset)} samples from {f} for {mode} mode")
+        print("Load_gt_poses: ", load_gt_poses)
+        print("Load_gt_depth: ", load_gt_depth)
+        print("depth_offline_loading: ", depth_offline_loading)
     
     # Concatenate if multiple datasets, otherwise return single dataset
     if len(datasets_list) > 1:

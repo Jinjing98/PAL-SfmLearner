@@ -53,15 +53,15 @@ class MonodepthOptions:
                                  type=int,
                                  help="warm up step",
                                  default=20000)
-     #    self.parser.add_argument("--residual_block_indexes",
-     #                             nargs="*",
-     #                             type=int,
-     #                             help="indexes for residual blocks in vitendodepth encoder",
-     #                             default=[2,5,8,11])
-     #    self.parser.add_argument("--include_cls_token",
-     #                             type=str2bool,
-     #                             help="includes the cls token in the transformer blocks",
-     #                             default=True)
+        # self.parser.add_argument("--residual_block_indexes",
+        #                          nargs="*",
+        #                          type=int,
+        #                          help="indexes for residual blocks in vitendodepth encoder",
+        #                          default=[2,5,8,11])
+        # self.parser.add_argument("--include_cls_token",
+        #                          type=str2bool,
+        #                          help="includes the cls token in the transformer blocks",
+        #                          default=True)
         self.parser.add_argument("--learn_intrinsics",
                                  help="if set, learns the camera intrinsics with a seperate decoder",
                                  action="store_true")
@@ -81,7 +81,7 @@ class MonodepthOptions:
                                  type=str,
                                  help="depth model type (placeholder)",
                                  default="depthanything3",
-                                 choices=["depthanything3"])
+                                 choices=["depthanything3","endodac"])
         self.parser.add_argument("--da3_depth_regression_target",
                                  type=str,
                                  help="depth regression target",

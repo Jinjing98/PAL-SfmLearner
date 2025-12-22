@@ -64,8 +64,8 @@ CUDA_VISIBLE_DEVICES=0 python /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLear
 --k_model_type da3_internal \
 --learn_intrinsics \
 --da3_depth_regression_target depth2disp \
---of_model_type separate_resnet \
 --of_model_type raft \
+--of_model_type separate_resnet \
 --exp_suffix full_endoDA3B_DepthPoseK_quanXYZW001_baseline_LorawarmUp40k_woRes_SingleScale \
 --exp_suffix full_endoDA3B_DepthPoseK_angleaxis001_baseline_LorawarmUp40k_woRes_SingleScale_LearnIntrinsics \
 --exp_suffix full_endoDA3B_DepthPoseK_angleaxis001_baseline_LorawarmUp40k_woRes_SingleScale_RAFT \
@@ -73,7 +73,6 @@ CUDA_VISIBLE_DEVICES=0 python /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLear
 --exp_suffix full_endoDA3B_DepthK_angleaxis001_baseline_LorawarmUp40k_woRes_SingleScale_LearnIntrinsics_fixMINDEPTH_ufzAllRaftLastOnly \
 --raft_trainable_modules all \
 --raft_trainable_modules convnormrelu layer1 layer2_0 \
---enable_seq_inputs \
 --use_raft_multi_iters \
 --raft_trainable_modules all \
 --raft_trainable_modules convnormrelu \
@@ -90,9 +89,12 @@ CUDA_VISIBLE_DEVICES=0 python /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLear
 --val_data_file test_files_sequence1_val.txt \
 --val_data_file test_files.txt test_files_sequence1_val.txt test_files_sequence2_val.txt \
 --val_data_file test_files.txt \
---of_supervised_with_which inputs_color \
---use_perframe_gt_K \
---da3_depth_regression_target disp \
+--val_data_file test_files.txt test_files_sequence1_val.txt \
+--depth_model_type endodac --pose_model_type separate_resnet --da3_depth_regression_target disp --k_model_type mlp_with_pn_bottleneck_ipt --warm_up_step 5000 --pretrained_path /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/weights/depthanything \
+# --da3_depth_regression_target disp \
+# --of_supervised_with_which inputs_color \
+# --use_perframe_gt_K \
+# --enable_seq_inputs \
 
 #125086 full_endoDA3B_DepthOnly_angleaxis_baseline_LorawarmUp40k_woRes_SingleScale: is infact no lora:None
 #125087 full_endoDA3B_DepthOnly_angleaxis_baseline_LorawarmUp40k_woRes_SingleScale: correcct lora fine tune

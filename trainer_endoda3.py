@@ -10,7 +10,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[0]
 sys.path.insert(0, str(ROOT / "third_party/depth_anything_3/src"))
 
-# from third_party.EndoDAC.models.endodac import endodac, mark_only_part_as_trainable
+from third_party.EndoDAC.models.endodac import endodac, mark_only_part_as_trainable
 from networks.endo_da3 import mark_only_part_as_trainable_v2, EndoDepthAnything3Net
 from depth_anything_3.cfg import create_object, load_config
 from omegaconf import OmegaConf
@@ -798,6 +798,26 @@ class Trainer:
                 print(f"Successfully loaded pretrained weights from {self.opt.pretrained_path} for depth net.\n")
             else:
                 assert False, "scratch training?"
+        elif self.opt.depth_model_type == "endodac":
+            # Sanity check: endodac model outputs disparity, so da3_depth_regression_target must be "disp"
+            da3_depth_regression_target = getattr(self.opt, 'da3_depth_regression_target', 'depth2disp')
+            assert da3_depth_regression_target == "disp", \
+                f"endodac depth model outputs disparity, so da3_depth_regression_target must be 'disp', " \
+                f"but got '{da3_depth_regression_target}'"
+            
+            # Initialize endodac model (same as in trainer_endodac.py)
+            self.models["depth_model"] = endodac(
+                backbone_size=getattr(self.opt, 'backbone_size', 'base'), 
+                r=getattr(self.opt, 'lora_rank', 4), 
+                lora_type=getattr(self.opt, 'lora_type', 'dvlora'),
+                image_shape=(224, 280), 
+                pretrained_path=self.opt.pretrained_path,
+                residual_block_indexes=getattr(self.opt, 'residual_block_indexes', [2, 5, 8, 11]),
+                include_cls_token=getattr(self.opt, 'include_cls_token', True))
+            self.models["depth_model"].to(self.device)
+            
+            print(f"Initialized endodac depth model with backbone_size={getattr(self.opt, 'backbone_size', 'base')}, "
+                  f"lora_rank={getattr(self.opt, 'lora_rank', 4)}, lora_type={getattr(self.opt, 'lora_type', 'dvlora')}")
         else:
             raise ValueError(f"Unsupported depth_model_type: {self.opt.depth_model_type}")
 
@@ -1483,6 +1503,7 @@ class Trainer:
             )
             outputs = cached_depth_output
         else:
+            # shared by endoDAC and endoda3_naive_single_input
             # Original behavior: single frame input
             outputs = self.models["depth_model"](inputs["color_aug", 0, 0])
 
@@ -1649,6 +1670,7 @@ class Trainer:
                             else:
                                 raise ValueError(f"frame_id {f_i} not found in frame_ids {self.opt.frame_ids}")
                         else:
+                            # endoda3_pair_posenet
                             # Original behavior: call depth model per frame pair (when enable_seq_inputs is False)
                             frames_input = torch.stack([pose_feats[0], pose_feats[f_i]], dim=1)  # (B, 2, 3, H, W)
                             depth_output_dict = self.models["depth_model"](frames_input, frame_id=f_i)

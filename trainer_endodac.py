@@ -188,8 +188,6 @@ class Trainer:
 
         splits_dir = os.path.join(os.path.dirname(__file__), "splits", self.opt.split)
         train_file = getattr(self.opt, 'train_data_file', ['train_files.txt'])
-        if getattr(self.opt, 'of_samples', False):
-            train_file = getattr(self.opt, 'val_data_file', ['val_files.txt'])
         val_file = getattr(self.opt, 'val_data_file', ['val_files.txt'])
         test_file = getattr(self.opt, 'test_data_file', ['test_files.txt'])
         
@@ -384,8 +382,34 @@ class Trainer:
         for self.epoch in range(self.opt.num_epochs):
             self.run_epoch()
 
+            # Run validation after each epoch
+            val_metrics = self.val()
+
+            # Save best model based on depth metric
+            if val_metrics is not None and self.best_depth_metric in val_metrics:
+                current_depth_value = val_metrics[self.best_depth_metric]
+                if self.best_depth_value is None or current_depth_value < self.best_depth_value:
+                    self.best_depth_value = current_depth_value
+                    self.best_depth_epoch = self.epoch
+                    print(f"New best {self.best_depth_metric}: {self.best_depth_value:.4f} at epoch {self.epoch}")
+                    self.save_model(mode='best_depth')
+                    self._save_best_metrics_info()
+            
+            # Save best model based on pose metric
+            if val_metrics is not None and self.best_pose_metric in val_metrics:
+                current_pose_value = val_metrics[self.best_pose_metric]
+                if self.best_pose_value is None or current_pose_value < self.best_pose_value:
+                    self.best_pose_value = current_pose_value
+                    self.best_pose_epoch = self.epoch
+                    print(f"New best {self.best_pose_metric}: {self.best_pose_value:.4f} at epoch {self.epoch}")
+                    self.save_model(mode='best_pose')
+                    self._save_best_metrics_info()
+
             if (self.epoch + 1) % self.opt.save_frequency == 0:
-                self.save_model(mode='epoch')            
+                self.save_model(mode='epoch')
+
+            # if (self.epoch + 1) % self.opt.save_frequency == 0:
+            #     self.save_model(mode='epoch')            
             
             # if self.epoch == 0:
             #     rmse, a1 = self.run_epoch_eval()
@@ -443,7 +467,7 @@ class Trainer:
 
                 self.log_time(batch_idx, duration, losses["loss"].cpu().data)
                 self.log("train", inputs, outputs, losses, metrics=metrics if metrics else None)
-                self.val()
+                # self.val()
 
             self.step += 1
             
