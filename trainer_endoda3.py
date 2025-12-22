@@ -624,21 +624,22 @@ class Trainer:
             self.opt.data_path, val_filenames, self.opt.height, self.opt.width,
             self.opt.frame_ids, 4, is_train=False, img_ext=img_ext,
             load_gt_poses=os.path.basename(val_fpath) != 'test_files.txt',# there is missing GT for d7k4 where a lot of test samples are
-            load_gt_depth=True,
+            # load_gt_depth=True,
+            load_gt_depth=os.path.basename(val_fpath) == 'test_files.txt',
             depth_offline_loading=os.path.basename(val_fpath) == 'test_files.txt',  # Load from gt_depths.npz when test_files.txt for perfect alignment
             )
         self.val_loader = DataLoader(
             val_dataset, self.opt.batch_size, False,
             num_workers=1, pin_memory=True, drop_last=True)
-        test_dataset = self.dataset(
-            self.opt.data_path, test_filenames, self.opt.height, self.opt.width,
-            self.opt.frame_ids, 4, is_train=False, img_ext=img_ext,
-            load_gt_poses=os.path.basename(test_fpath) != 'test_files.txt',# there is missing GT for d7k4 where a lot of test samples are
-            load_gt_depth=True,
-            )
-        self.test_loader = DataLoader(
-            test_dataset, 1, False,
-            num_workers=1, pin_memory=True, drop_last=True,)
+        # test_dataset = self.dataset(
+        #     self.opt.data_path, test_filenames, self.opt.height, self.opt.width,
+        #     self.opt.frame_ids, 4, is_train=False, img_ext=img_ext,
+        #     load_gt_poses=os.path.basename(test_fpath) != 'test_files.txt',# there is missing GT for d7k4 where a lot of test samples are
+        #     load_gt_depth=True,
+        #     )
+        # self.test_loader = DataLoader(
+        #     test_dataset, 1, False,
+        #     num_workers=1, pin_memory=True, drop_last=True,)
         self.val_iter = iter(self.val_loader)
 
         self.writers = {}
@@ -682,8 +683,9 @@ class Trainer:
         # self.gt_depths = np.load(gt_path, fix_imports=True, encoding='latin1')["data"]
         
         print("Using split:\n  ", self.opt.split)
-        print("There are {:d} training items, {:d} validation items and {:d} testing items\n".format(
-            len(train_dataset), len(val_dataset), len(test_dataset)))
+        print("There are {:d} training items, {:d} validation items \n".format(
+            len(train_dataset), len(val_dataset)))
+        # print("There are {:d} testing items\n".format(len(test_dataset)))
 
         self.save_opts()
         Total_params = 0
@@ -1132,22 +1134,51 @@ class Trainer:
         self.epoch = 0
         self.step = 0
         self.start_time = time.time()
+        
+        # Get configurable metric names
+        self.best_depth_metric = 'rmse'
+        self.best_pose_metric = 'pose_rot_err_deg'
+        
+        # Track best values and epochs
+        self.best_depth_value = None
+        self.best_depth_epoch = None
+        self.best_pose_value = None
+        self.best_pose_epoch = None
+        
         for self.epoch in range(self.opt.num_epochs):
             self.run_epoch()
+            
+            # Run validation after each epoch
+            val_metrics = self.val()
+            
+            # Save best model based on depth metric
+            if val_metrics is not None and self.best_depth_metric in val_metrics:
+                current_depth_value = val_metrics[self.best_depth_metric]
+                if self.best_depth_value is None or current_depth_value < self.best_depth_value:
+                    self.best_depth_value = current_depth_value
+                    self.best_depth_epoch = self.epoch
+                    print(f"New best {self.best_depth_metric}: {self.best_depth_value:.4f} at epoch {self.epoch}")
+                    self.save_model(mode='best_depth')
+                    self._save_best_metrics_info()
+            
+            # Save best model based on pose metric
+            if val_metrics is not None and self.best_pose_metric in val_metrics:
+                current_pose_value = val_metrics[self.best_pose_metric]
+                if self.best_pose_value is None or current_pose_value < self.best_pose_value:
+                    self.best_pose_value = current_pose_value
+                    self.best_pose_epoch = self.epoch
+                    print(f"New best {self.best_pose_metric}: {self.best_pose_value:.4f} at epoch {self.epoch}")
+                    self.save_model(mode='best_pose')
+                    self._save_best_metrics_info()
 
             if (self.epoch + 1) % self.opt.save_frequency == 0:
-                self.save_model(mode='epoch')            
-            
-            # if self.epoch == 0:
-            #     rmse, a1 = self.run_epoch_eval()
-            #     self.save_model(mode='epoch')
-            # else:
-            #     rmse_new, a1_new = self.run_epoch_eval()
-            #     if rmse_new < rmse:
-            #         rmse = rmse_new
-            #         # a1 = a1_new
-            #         self.save_model(mode='epoch')
-            # self.save_model(mode='last')
+                self.save_model(mode='epoch')
+        
+        # Save last model
+        self.save_model(mode='last')
+        
+        # Save final best metrics info
+        self._save_best_metrics_info()
             
     def run_epoch(self):
         """Run a single epoch of training and validation
@@ -1192,82 +1223,81 @@ class Trainer:
 
                 self.log_time(batch_idx, duration, losses["loss"].cpu().data)
                 self.log("train", inputs, outputs, losses, metrics=metrics if metrics else None)
-                self.val()
 
             self.step += 1
             
         self.model_lr_scheduler.step()
         self.model_lr_scheduler_0.step()
 
-    def run_epoch_eval(self):
-        """Run a single epoch of evaluation
-        """
+    # def run_epoch_eval(self):
+    #     """Run a single epoch of evaluation
+    #     """
 
-        print("Evaluating")
-        MIN_DEPTH = 1e-3
-        MAX_DEPTH = 150
+    #     print("Evaluating")
+    #     MIN_DEPTH = 1e-3
+    #     MAX_DEPTH = 150
         
-        self.set_eval()
-        pred_depths = []
-        for batch_idx, inputs in enumerate(self.test_loader):
-            input_color = inputs[("color", 0, 0)].cuda()
+    #     self.set_eval()
+    #     pred_depths = []
+    #     for batch_idx, inputs in enumerate(self.test_loader):
+    #         input_color = inputs[("color", 0, 0)].cuda()
 
-            if self.opt.post_process:
-                # Post-processed results require each image to have two forward passes
-                input_color = torch.cat((input_color, torch.flip(input_color, [3])), 0)
+    #         if self.opt.post_process:
+    #             # Post-processed results require each image to have two forward passes
+    #             input_color = torch.cat((input_color, torch.flip(input_color, [3])), 0)
 
-            # output = self.models["depth"](self.models["encoder"](input_color))
-            output = self.models["depth_model"](input_color)
-            _, pred_depth = disp_to_depth(output[("disp", 0)], self.opt.min_depth, self.opt.max_depth)
-            pred_depth = pred_depth[:, 0].cpu().detach().numpy()
-            pred_depths.append(pred_depth)
+    #         # output = self.models["depth"](self.models["encoder"](input_color))
+    #         output = self.models["depth_model"](input_color)
+    #         _, pred_depth = disp_to_depth(output[("disp", 0)], self.opt.min_depth, self.opt.max_depth)
+    #         pred_depth = pred_depth[:, 0].cpu().detach().numpy()
+    #         pred_depths.append(pred_depth)
             
-        pred_depths = np.concatenate(pred_depths)
+    #     pred_depths = np.concatenate(pred_depths)
         
-        errors = []
-        ratios = []
+    #     errors = []
+    #     ratios = []
         
-        for i in range(pred_depths.shape[0]):
-            # gt_depth = self.gt_depths[i]
-            # obtain gt_depth from inputs
-            gt_depth = inputs[("depth_gt", 0, 0)].cpu().detach().numpy().squeeze()
-            gt_height, gt_width = gt_depth.shape[:2]
+    #     for i in range(pred_depths.shape[0]):
+    #         # gt_depth = self.gt_depths[i]
+    #         # obtain gt_depth from inputs
+    #         gt_depth = inputs[("depth_gt", 0, 0)].cpu().detach().numpy().squeeze()
+    #         gt_height, gt_width = gt_depth.shape[:2]
 
-            pred_depth = pred_depths[i]
-            pred_depth = cv2.resize(pred_depth, (gt_width, gt_height))
+    #         pred_depth = pred_depths[i]
+    #         pred_depth = cv2.resize(pred_depth, (gt_width, gt_height))
             
-            mask = np.logical_and(gt_depth > MIN_DEPTH, gt_depth < MAX_DEPTH)
-            pred_depth = pred_depth[mask]
-            gt_depth = gt_depth[mask]
+    #         mask = np.logical_and(gt_depth > MIN_DEPTH, gt_depth < MAX_DEPTH)
+    #         pred_depth = pred_depth[mask]
+    #         gt_depth = gt_depth[mask]
 
-            pred_depth *= self.opt.pred_depth_scale_factor
-            # print(pred_depth.max(), pred_depth.min())
-            if not self.opt.disable_median_scaling:
-                ratio = np.median(gt_depth) / np.median(pred_depth)
-                ratios.append(ratio)
-                pred_depth *= ratio
+    #         pred_depth *= self.opt.pred_depth_scale_factor
+    #         # print(pred_depth.max(), pred_depth.min())
+    #         if not self.opt.disable_median_scaling:
+    #             ratio = np.median(gt_depth) / np.median(pred_depth)
+    #             ratios.append(ratio)
+    #             pred_depth *= ratio
 
-            pred_depth[pred_depth < MIN_DEPTH] = MIN_DEPTH
-            pred_depth[pred_depth > MAX_DEPTH] = MAX_DEPTH
+    #         pred_depth[pred_depth < MIN_DEPTH] = MIN_DEPTH
+    #         pred_depth[pred_depth > MAX_DEPTH] = MAX_DEPTH
             
-            # errors.append(compute_errors(gt_depth, pred_depth))
-            errors.append(compute_depth_errors(gt_depth, pred_depth))
-        if not self.opt.disable_median_scaling:
-            ratios = np.array(ratios)
-            med = np.median(ratios)
-            print(" Scaling ratios | med: {:0.3f} | std: {:0.3f}".format(med, np.std(ratios / med)))
+    #         # errors.append(compute_errors(gt_depth, pred_depth))
+    #         errors.append(compute_depth_errors(gt_depth, pred_depth))
+    #     if not self.opt.disable_median_scaling:
+    #         ratios = np.array(ratios)
+    #         med = np.median(ratios)
+    #         print(" Scaling ratios | med: {:0.3f} | std: {:0.3f}".format(med, np.std(ratios / med)))
 
-        mean_errors = np.array(errors).mean(0)
+    #     mean_errors = np.array(errors).mean(0)
 
-        writer = self.writers["train"]
-        for i in range(len(mean_errors)):
-            writer.add_scalar(self.depth_metric_names[i], mean_errors[i], self.epoch)
-        print("\n  " + ("{:>8} | " * 7).format("abs_rel", "sq_rel", "rmse", "rmse_log", "a1", "a2", "a3"))
-        print(("&{: 8.3f}  " * 7).format(*mean_errors.tolist()) + "\\\\")
+    #     writer = self.writers["train"]
+    #     for i in range(len(mean_errors)):
+    #         writer.add_scalar(self.depth_metric_names[i], mean_errors[i], self.epoch)
+    #     print("\n  " + ("{:>8} | " * 7).format("abs_rel", "sq_rel", "rmse", "rmse_log", "a1", "a2", "a3"))
+    #     print(("&{: 8.3f}  " * 7).format(*mean_errors.tolist()) + "\\\\")
         
-        self.set_train()
+    #     self.set_train()
         
-        return mean_errors[2], mean_errors[4]
+    #     return mean_errors[2], mean_errors[4]
     def process_batch_0(self, inputs):
         """Pass a minibatch through the network and generate images and losses
         """
@@ -1809,7 +1839,9 @@ class Trainer:
         return losses
     
     def val(self):
-        """Validate the model on a single minibatch
+        """Validate the model on validation set
+        Returns:
+            Dictionary of validation metrics (or None if no metrics computed)
         """
         self.set_eval()
         if getattr(self.opt, 'val_full_eval', False):
@@ -1891,6 +1923,7 @@ class Trainer:
                 del inputs, outputs, losses
 
         self.set_train()
+        return metrics
 
     def process_batch_val(self, inputs):
         """Pass a minibatch through the network and generate images and losses
@@ -2067,6 +2100,10 @@ class Trainer:
             save_folder = os.path.join(self.log_path, "models", "weights_{}".format(self.epoch))
         elif mode == 'last':
             save_folder = os.path.join(self.log_path, "models", "weights_last")
+        elif mode == 'best_depth':
+            save_folder = os.path.join(self.log_path, "models", "best_depth")
+        elif mode == 'best_pose':
+            save_folder = os.path.join(self.log_path, "models", "best_pose")
         if not os.path.exists(save_folder):
             os.makedirs(save_folder)
 
@@ -2082,6 +2119,26 @@ class Trainer:
 
         save_path = os.path.join(save_folder, "{}.pth".format("adam"))
         torch.save(self.model_optimizer.state_dict(), save_path)
+
+    def _save_best_metrics_info(self):
+        """Save best metrics criteria, values, and epochs to exp_dir
+        """
+        best_metrics_info = {
+            'best_depth_metric': self.best_depth_metric,
+            'best_depth_value': self.best_depth_value,
+            'best_depth_epoch': self.best_depth_epoch,
+            'best_pose_metric': self.best_pose_metric,
+            'best_pose_value': self.best_pose_value,
+            'best_pose_epoch': self.best_pose_epoch,
+        }
+        
+        # Save to JSON file in exp_dir
+        info_path = os.path.join(self.log_path, "best_metrics_info.json")
+        with open(info_path, 'w') as f:
+            json.dump(best_metrics_info, f, indent=2)
+        
+        # Also print summary
+        print(f"Best metrics info saved to: {info_path}")
 
     def load_model(self):
         """Load model(s) from disk

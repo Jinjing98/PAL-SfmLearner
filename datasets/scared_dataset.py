@@ -94,7 +94,8 @@ class SCAREDRAWDataset(SCAREDDataset):
             if os.path.exists(gt_path):
                 print("Loading GT depths from {}".format(gt_path))
                 self.gt_depths_val = np.load(gt_path, fix_imports=True, encoding='latin1')["data"]
-                assert len(self.gt_depths_val) == len(self.filenames), "Number of GT depth maps does not match number of filenames"
+                # also wrongly assert for of_samples
+                # assert len(self.gt_depths_val) == len(self.filenames), "Number of GT depth maps does not match number of filenames {} vs {}".format(len(self.gt_depths_val), len(self.filenames))
                 print("Loaded {} GT depth maps".format(len(self.gt_depths_val)))
             else:
                 print("WARNING: GT depths file not found at {}. Online loading will be used.".format(gt_path))

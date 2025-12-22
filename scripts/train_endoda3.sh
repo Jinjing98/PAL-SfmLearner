@@ -83,9 +83,10 @@ CUDA_VISIBLE_DEVICES=0 python /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLear
 --batch_size 2 \
 --log_dir /mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm/endodac_dbg \
 --train_data_file d6_kf2.txt \
---val_data_file d6_kf2.txt \
 --train_data_file test_files.txt \
 --val_data_file test_files.txt \
+--val_data_file d6_kf2.txt \
+--val_data_file test_files_sequence1_val.txt \
 --of_supervised_with_which inputs_color \
 --use_perframe_gt_K \
 
