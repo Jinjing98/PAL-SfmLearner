@@ -436,14 +436,16 @@ class Trainer:
                 # Compute metrics (depth and pose) if available
                 metrics = {}
                 # log depth metrics during trn
-                if getattr(self.opt, 'compute_metrics', False):
+                if getattr(self.opt, 'compute_depth_metrics', False):
                     depth_metrics = compute_depth_metrics(inputs, outputs)
                     if depth_metrics:
                         metrics.update(depth_metrics)
                 
-                pose_metrics, *pose_metrics_raw = compute_pose_metrics(inputs, outputs, self.opt.frame_ids)
-                if pose_metrics:
-                    metrics.update(pose_metrics)
+                # log pose metrics during trn
+                if getattr(self.opt, 'compute_pose_metrics', False):
+                    pose_metrics, *pose_metrics_raw = compute_pose_metrics(inputs, outputs, self.opt.frame_ids)
+                    if pose_metrics:
+                        metrics.update(pose_metrics)
 
                 self.log_time(batch_idx, duration, losses["loss"].cpu().data)
                 self.log("train", inputs, outputs, losses, metrics=metrics if metrics else None)
@@ -906,14 +908,15 @@ class Trainer:
                     outputs, losses = self.process_batch_val(inputs)
                     last_inputs, last_outputs, last_losses = inputs, outputs, losses
 
-                    if getattr(self.opt, 'compute_metrics', False):
+                    if getattr(self.opt, 'compute_depth_metrics', False):
                         depth_metrics = compute_depth_metrics(inputs, outputs)
                         if depth_metrics:
                             _accum(metrics_accum, depth_metrics)
 
-                    pose_metrics, *pose_metrics_raw = compute_pose_metrics(inputs, outputs, self.opt.frame_ids)
-                    if pose_metrics:
-                        _accum(metrics_accum, pose_metrics)
+                    if getattr(self.opt, 'compute_pose_metrics', False):
+                        pose_metrics, *pose_metrics_raw = compute_pose_metrics(inputs, outputs, self.opt.frame_ids)
+                        if pose_metrics:
+                            _accum(metrics_accum, pose_metrics)
 
             # Average accumulated metrics
             metrics = {k: sum(v_list) / len(v_list) for k, v_list in metrics_accum.items()} if metrics_accum else None
@@ -933,14 +936,15 @@ class Trainer:
                 
                 # Compute metrics (depth and pose) if available
                 metrics = {}
-                if getattr(self.opt, 'compute_metrics', False):
+                if getattr(self.opt, 'compute_depth_metrics', False):
                     depth_metrics = compute_depth_metrics(inputs, outputs)
                     if depth_metrics:
                         metrics.update(depth_metrics)
                 
-                pose_metrics = compute_pose_metrics(inputs, outputs, self.opt.frame_ids)
-                if pose_metrics:
-                    metrics.update(pose_metrics)
+                if getattr(self.opt, 'compute_pose_metrics', False):
+                    pose_metrics = compute_pose_metrics(inputs, outputs, self.opt.frame_ids)
+                    if pose_metrics:
+                        metrics.update(pose_metrics)
                 
                 self.log("val", inputs, outputs, losses, metrics=metrics if metrics else None)
                 del inputs, outputs, losses

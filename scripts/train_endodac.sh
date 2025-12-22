@@ -27,7 +27,8 @@ CUDA_VISIBLE_DEVICES=0 python \
 --reconstruction_constraint 0.2 \
 --reflec_constraint 0.2 \
 --reprojection_constraint 1 \
---compute_metrics \
+--compute_depth_metrics \
+--compute_pose_metrics \
 --val_full_eval \
 --train_data_file d6_kf2.txt \
 --val_data_file d6_kf2.txt \

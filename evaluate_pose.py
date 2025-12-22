@@ -259,7 +259,7 @@ def evaluate(opt):
     # Compute evaluation metrics
     print("\n-> Computing evaluation metrics...")
     
-    def compute_metrics(gt_local_poses, pred_poses, track_length):
+    def compute_depth_metrics(gt_local_poses, pred_poses, track_length):
         ates = []
         res = []
         rpes_trans = []
@@ -338,7 +338,7 @@ def evaluate(opt):
     
     metrics_dict = {}
     for track_length in track_lengths:
-        metrics_dict[track_length] = compute_metrics(gt_local_poses, pred_poses, track_length=track_length)
+        metrics_dict[track_length] = compute_depth_metrics(gt_local_poses, pred_poses, track_length=track_length)
 
 
 if __name__ == "__main__":

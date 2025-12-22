@@ -26,7 +26,8 @@ CUDA_VISIBLE_DEVICES=0 python /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLear
 --batch_size 8 \
 --log_frequency 200 \
 --disparity_smoothness 0.01 \
---compute_metrics \
+--compute_depth_metrics \
+--compute_pose_metrics \
 --val_full_eval \
 --train_data_file d6_kf2.txt \
 --val_data_file d6_kf2.txt \
@@ -85,8 +86,8 @@ CUDA_VISIBLE_DEVICES=0 python /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLear
 --train_data_file test_files.txt \
 --val_data_file test_files.txt \
 --val_data_file test_files_sequence1_val.txt \
---val_data_file test_files.txt test_files_sequence1_val.txt \
 --val_data_file test_files.txt \
+--val_data_file test_files.txt test_files_sequence1_val.txt test_files_sequence2_val.txt \
 --of_supervised_with_which inputs_color \
 --use_perframe_gt_K \
 

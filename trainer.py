@@ -267,14 +267,15 @@ class Trainer:
             if phase:
                 # Compute metrics (depth and pose) if available
                 metrics = {}
-                if self.opt.compute_metrics:
+                if self.opt.compute_depth_metrics:
                     depth_metrics = compute_depth_metrics(inputs, outputs)
                     if depth_metrics:
                         metrics.update(depth_metrics)
                 
-                pose_metrics = compute_pose_metrics(inputs, outputs, self.opt.frame_ids)
-                if pose_metrics:
-                    metrics.update(pose_metrics)
+                if self.opt.compute_pose_metrics:
+                    pose_metrics = compute_pose_metrics(inputs, outputs, self.opt.frame_ids)
+                    if pose_metrics:
+                        metrics.update(pose_metrics)
 
                 self.log_time(batch_idx, duration, losses["loss"].cpu().data)
                 self.log("train", inputs, outputs, losses, metrics=metrics if metrics else None)
@@ -659,14 +660,15 @@ class Trainer:
                     outputs, losses = self.process_batch(inputs)
                     last_inputs, last_outputs, last_losses = inputs, outputs, losses
 
-                    if self.opt.compute_metrics:
+                    if self.opt.compute_depth_metrics:
                         depth_metrics = compute_depth_metrics(inputs, outputs)
                         if depth_metrics:
                             _accum(metrics_accum, depth_metrics)
 
-                    pose_metrics = compute_pose_metrics(inputs, outputs, self.opt.frame_ids)
-                    if pose_metrics:
-                        _accum(metrics_accum, pose_metrics)
+                    if self.opt.compute_pose_metrics:
+                        pose_metrics = compute_pose_metrics(inputs, outputs, self.opt.frame_ids)
+                        if pose_metrics:
+                            _accum(metrics_accum, pose_metrics)
 
             # Average accumulated metrics
             # print metrics_accume for tracing
@@ -691,14 +693,15 @@ class Trainer:
                 
                 # Compute metrics (depth and pose) if available
                 metrics = {}
-                if self.opt.compute_metrics:
+                if self.opt.compute_depth_metrics:
                     depth_metrics = compute_depth_metrics(inputs, outputs)
                     if depth_metrics:
                         metrics.update(depth_metrics)
                 
-                pose_metrics = compute_pose_metrics(inputs, outputs, self.opt.frame_ids)
-                if pose_metrics:
-                    metrics.update(pose_metrics)
+                if self.opt.compute_pose_metrics:
+                    pose_metrics = compute_pose_metrics(inputs, outputs, self.opt.frame_ids)
+                    if pose_metrics:
+                        metrics.update(pose_metrics)
                 
                 self.log("val", inputs, outputs, losses, metrics=metrics if metrics else None)
                 del inputs, outputs, losses

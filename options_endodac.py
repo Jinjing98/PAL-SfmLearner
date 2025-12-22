@@ -252,8 +252,11 @@ class MonodepthOptions:
                                  type=int,
                                  help="random seed for reproducibility",
                                  default=42)
-        self.parser.add_argument("--compute_metrics",
+        self.parser.add_argument("--compute_depth_metrics",
                                  help="if set computes depth metrics during validation",
+                                 action="store_true")
+        self.parser.add_argument("--compute_pose_metrics",
+                                 help="if set computes pose metrics during validation",
                                  action="store_true")
         self.parser.add_argument("--val_full_eval",
                                  help="if set, run validation on the full val set instead of a single batch",
