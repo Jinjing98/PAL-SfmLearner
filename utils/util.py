@@ -9,6 +9,7 @@ import PIL.Image as pil
 import torchvision.transforms as T
 from torchvision.utils import flow_to_image
 import torch.nn.functional as F
+from torch.utils.data import ConcatDataset
 
 def readlines(filename):
     """Read all the lines in a text file and return as a list
@@ -164,4 +165,101 @@ def download_model_if_doesnt_exist(model_name):
             f.extractall(model_path)
 
         print("   Model unzipped to {}".format(model_path))
+
+
+def create_dataset_from_file_or_list(file_or_list, splits_dir, dataset_class, data_path, height, width, 
+                                     frame_ids, num_input_images, is_train, img_ext='.png', opt=None, mode='train'):
+    """Create a dataset from a single file or a list of files by concatenating dataset instances.
+    
+    This utility function can be used by both trainer_endoda3.py and trainer_endodac.py to handle
+    multiple data files with concatenation.
+    
+    Args:
+        file_or_list: Either a string (single file) or a list of strings (multiple files)
+        splits_dir: Directory containing the split files
+        dataset_class: The dataset class to instantiate (e.g., datasets.SCAREDRAWDataset)
+        data_path: Path to the data directory
+        height: Image height
+        width: Image width
+        frame_ids: List of frame IDs to load
+        num_input_images: Number of input images (typically 4)
+        is_train: Whether this is a training dataset
+        img_ext: Image file extension (default: '.png')
+        opt: Optional options object for accessing opt.of_samples, opt.of_samples_num, etc.
+             If None, overfitting options will be ignored
+        mode: 'train', 'val', or 'test' - used for determining dataset parameters
+        
+    Returns:
+        Dataset instance (single dataset or ConcatDataset if multiple files)
+    """
+    # Normalize to list
+    if isinstance(file_or_list, str):
+        files = [file_or_list]
+    elif file_or_list is None:
+        # Handle None case - use default based on mode
+        if mode == 'train':
+            files = ['train_files.txt']
+        elif mode == 'val':
+            files = ['val_files.txt']
+        else:  # test
+            files = ['test_files.txt']
+    else:
+        files = file_or_list
+    
+    datasets_list = []
+    total_samples = 0
+    
+    for f in files:
+        fpath = os.path.join(splits_dir, f)
+        filenames = readlines(fpath)
+        
+        # Apply overfitting limit if needed
+        if opt is not None and getattr(opt, 'of_samples', False):
+            of_samples_num = getattr(opt, 'of_samples_num', 100)
+            filenames = filenames[:of_samples_num]
+        
+        # Determine dataset parameters based on file name
+        is_test_file = os.path.basename(f) == 'test_files.txt'
+        is_sequence_file = os.path.basename(f) in ['test_files_sequence1_val.txt', 'test_files_sequence2_val.txt']
+        load_gt_poses = is_sequence_file if mode == 'val' else False
+        load_gt_depth = is_test_file if mode == 'val' else False
+        depth_offline_loading = is_test_file  # use gt_depths.npz
+        
+        # Create dataset for this file
+        # Check if dataset class accepts load_gt_poses, load_gt_depth, depth_offline_loading
+        # Some datasets (like in trainer_endodac) may not support all these parameters
+        try:
+            # Try with all parameters first (for trainer_endoda3)
+            dataset = dataset_class(
+                data_path, filenames, height, width,
+                frame_ids, num_input_images, is_train=is_train, img_ext=img_ext,
+                load_gt_poses=load_gt_poses,
+                load_gt_depth=load_gt_depth,
+                depth_offline_loading=depth_offline_loading,
+            )
+        except TypeError:
+            # Fallback: try without optional parameters (for trainer_endodac)
+            try:
+                dataset = dataset_class(
+                    data_path, filenames, height, width,
+                    frame_ids, num_input_images, is_train=is_train, img_ext=img_ext,
+                    load_gt_poses=load_gt_poses,
+                )
+            except TypeError:
+                # Final fallback: minimal parameters
+                dataset = dataset_class(
+                    data_path, filenames, height, width,
+                    frame_ids, num_input_images, is_train=is_train, img_ext=img_ext,
+                )
+        
+        datasets_list.append(dataset)
+        total_samples += len(dataset)
+        print(f"  Loaded {len(dataset)} samples from {f}")
+    
+    # Concatenate if multiple datasets, otherwise return single dataset
+    if len(datasets_list) > 1:
+        print(f"  Concatenated {len(datasets_list)} datasets: {total_samples} total samples")
+        return ConcatDataset(datasets_list)
+    else:
+        return datasets_list[0]
 

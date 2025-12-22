@@ -25,7 +25,7 @@ from networks.raft import RAFT
 
 from utils.utils_optic_flow import get_occu_mask_backward, get_occu_mask_bidirection, optical_flow
 from utils.metrics import compute_depth_metrics, compute_pose_metrics, compute_depth_errors
-from utils.util import set_seed, readlines, normalize_image, sec_to_hm_str, disp_to_depth_v2
+from utils.util import set_seed, readlines, normalize_image, sec_to_hm_str, disp_to_depth_v2, create_dataset_from_file_or_list
 from utils.warping import (
     transformation_from_parameters,
     transformation_from_parameters_6D,
@@ -629,72 +629,28 @@ class Trainer:
         self.dataset = datasets_dict[self.opt.dataset]
 
         splits_dir = os.path.join(os.path.dirname(__file__), "splits", self.opt.split)
-        train_file = getattr(self.opt, 'train_data_file', 'train_files.txt') #if not getattr(self.opt, 'of_samples', False) else getattr(self.opt, 'val_data_file', 'val_files.txt')
-        val_file = getattr(self.opt, 'val_data_file', 'val_files.txt')
-        test_file = getattr(self.opt, 'test_data_file', 'test_files.txt')
+        train_file = getattr(self.opt, 'train_data_file', ['train_files.txt'])
+        val_file = getattr(self.opt, 'val_data_file', ['val_files.txt'])
+        test_file = getattr(self.opt, 'test_data_file', ['test_files.txt'])
         
         img_ext = '.png'
         
-        def create_dataset_from_file_or_list(file_or_list, splits_dir, is_train, mode='train'):
-            """Create a dataset from a single file or a list of files by concatenating dataset instances
-            
-            Args:
-                file_or_list: Either a string (single file) or a list of strings (multiple files)
-                splits_dir: Directory containing the split files
-                is_train: Whether this is a training dataset
-                mode: 'train', 'val', or 'test' - used for determining dataset parameters
-                
-            Returns:
-                Dataset instance (single dataset or ConcatDataset if multiple files)
-            """
-            # Normalize to list
-            if isinstance(file_or_list, str):
-                files = [file_or_list]
-            else:
-                files = file_or_list
-            
-            datasets_list = []
-            total_samples = 0
-            
-            for f in files:
-                fpath = os.path.join(splits_dir, f)
-                filenames = readlines(fpath)
-                
-                # Apply overfitting limit if needed
-                if getattr(self.opt, 'of_samples', False):
-                    of_samples_num = getattr(self.opt, 'of_samples_num', 100)
-                    filenames = filenames[:of_samples_num]
-                
-                # Determine dataset parameters based on file name
-                is_test_file = os.path.basename(f) == 'test_files.txt'
-                is_sequence_file = os.path.basename(f) in ['test_files_sequence1_val.txt', 'test_files_sequence2_val.txt']
-                load_gt_poses = is_sequence_file if mode == 'val' else False #not is_test_file  # there is missing GT for d7k4 where a lot of test samples are
-                load_gt_depth = is_test_file if mode == 'val' else False
-                depth_offline_loading = is_test_file # use gt_depths.npz
-                
-                # Create dataset for this file
-                dataset = self.dataset(
-                    self.opt.data_path, filenames, self.opt.height, self.opt.width,
-                    self.opt.frame_ids, 4, is_train=is_train, img_ext=img_ext,
-                    load_gt_poses=load_gt_poses,
-                    load_gt_depth=load_gt_depth,
-                    depth_offline_loading=depth_offline_loading,
-                )
-                datasets_list.append(dataset)
-                total_samples += len(dataset)
-                print(f"  Loaded {len(dataset)} samples from {f}")
-            
-            # Concatenate if multiple datasets, otherwise return single dataset
-            if len(datasets_list) > 1:
-                print(f"  Concatenated {len(datasets_list)} datasets: {total_samples} total samples")
-                return ConcatDataset(datasets_list)
-            else:
-                return datasets_list[0]
-        
-        # Create datasets
-        train_dataset = create_dataset_from_file_or_list(train_file, splits_dir, is_train=True, mode='train')
-        val_dataset = create_dataset_from_file_or_list(val_file, splits_dir, is_train=False, mode='val')
-        test_dataset = create_dataset_from_file_or_list(test_file, splits_dir, is_train=False, mode='test')
+        # Create datasets using shared utility function
+        train_dataset = create_dataset_from_file_or_list(
+            train_file, splits_dir, self.dataset, self.opt.data_path, 
+            self.opt.height, self.opt.width, self.opt.frame_ids, 4, 
+            is_train=True, img_ext=img_ext, opt=self.opt, mode='train'
+        )
+        val_dataset = create_dataset_from_file_or_list(
+            val_file, splits_dir, self.dataset, self.opt.data_path,
+            self.opt.height, self.opt.width, self.opt.frame_ids, 4,
+            is_train=False, img_ext=img_ext, opt=self.opt, mode='val'
+        )
+        test_dataset = create_dataset_from_file_or_list(
+            test_file, splits_dir, self.dataset, self.opt.data_path,
+            self.opt.height, self.opt.width, self.opt.frame_ids, 4,
+            is_train=False, img_ext=img_ext, opt=self.opt, mode='test'
+        )
         
         num_train_samples = len(train_dataset)
         self.num_total_steps = num_train_samples // self.opt.batch_size * self.opt.num_epochs

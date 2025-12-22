@@ -12,7 +12,7 @@ from third_party.EndoDAC.models.decoders import IntrinsicsHead, PoseCNN
 
 from utils.utils_optic_flow import get_occu_mask_backward, get_occu_mask_bidirection, optical_flow
 from utils.metrics import compute_depth_metrics, compute_pose_metrics, compute_depth_errors
-from utils.util import set_seed, readlines, normalize_image, sec_to_hm_str, disp_to_depth
+from utils.util import set_seed, readlines, normalize_image, sec_to_hm_str, disp_to_depth, create_dataset_from_file_or_list
 from utils.warping import (
     transformation_from_parameters,
     transformation_from_parameters_6D,
@@ -187,49 +187,43 @@ class Trainer:
         self.dataset = datasets_dict[self.opt.dataset]
 
         splits_dir = os.path.join(os.path.dirname(__file__), "splits", self.opt.split)
-        train_file = getattr(self.opt, 'train_data_file', 'train_files.txt') if not getattr(self.opt, 'of_samples', False) else getattr(self.opt, 'val_data_file', 'val_files.txt')
-        val_file = getattr(self.opt, 'val_data_file', 'val_files.txt')
-        test_file = getattr(self.opt, 'test_data_file', 'test_files.txt')
-        
-        train_fpath = os.path.join(splits_dir, train_file)
-        val_fpath = os.path.join(splits_dir, val_file)
-        test_fpath = os.path.join(splits_dir, test_file)
-        
-        train_filenames = readlines(train_fpath)
-        val_filenames = readlines(val_fpath)
-        test_filenames = readlines(test_fpath)
-        img_ext = '.png'  
-
+        train_file = getattr(self.opt, 'train_data_file', ['train_files.txt'])
         if getattr(self.opt, 'of_samples', False):
-            of_samples_num = getattr(self.opt, 'of_samples_num', 100)
-            train_filenames = train_filenames[:of_samples_num]
-            val_filenames = val_filenames[:of_samples_num]
-            test_filenames = test_filenames[:of_samples_num]
-            print("Overfitting mode: using {} Trn samples".format(len(train_filenames)))
-            print("Overfitting mode: using {} Val samples".format(len(val_filenames)))
-            print("Overfitting mode: using {} Test samples".format(len(test_filenames)))
-
-        num_train_samples = len(train_filenames)
+            train_file = getattr(self.opt, 'val_data_file', ['val_files.txt'])
+        val_file = getattr(self.opt, 'val_data_file', ['val_files.txt'])
+        test_file = getattr(self.opt, 'test_data_file', ['test_files.txt'])
+        
+        img_ext = '.png'
+        
+        # Create datasets using shared utility function
+        train_dataset = create_dataset_from_file_or_list(
+            train_file, splits_dir, self.dataset, self.opt.data_path,
+            self.opt.height, self.opt.width, self.opt.frame_ids, 4,
+            is_train=True, img_ext=img_ext, opt=self.opt, mode='train'
+        )
+        val_dataset = create_dataset_from_file_or_list(
+            val_file, splits_dir, self.dataset, self.opt.data_path,
+            self.opt.height, self.opt.width, self.opt.frame_ids, 4,
+            is_train=False, img_ext=img_ext, opt=self.opt, mode='val'
+        )
+        test_dataset = create_dataset_from_file_or_list(
+            test_file, splits_dir, self.dataset, self.opt.data_path,
+            self.opt.height, self.opt.width, self.opt.frame_ids, 4,
+            is_train=False, img_ext=img_ext, opt=self.opt, mode='test'
+        )
+        
+        num_train_samples = len(train_dataset)
         self.num_total_steps = num_train_samples // self.opt.batch_size * self.opt.num_epochs
 
         # is_train = not getattr(self.opt, 'of_samples', False) # can be used for compute depth err
         shuffle = not getattr(self.opt, 'of_samples', False)  # Fixed order for overfitting
-        train_dataset = self.dataset(
-            self.opt.data_path, train_filenames, self.opt.height, self.opt.width,
-            self.opt.frame_ids, 4, is_train=True, img_ext=img_ext)
+        
         self.train_loader = DataLoader(
             train_dataset, self.opt.batch_size, shuffle,
             num_workers=self.opt.num_workers, pin_memory=True, drop_last=True)
-        val_dataset = self.dataset(
-            self.opt.data_path, val_filenames, self.opt.height, self.opt.width,
-            self.opt.frame_ids, 4, is_train=False, img_ext=img_ext)
         self.val_loader = DataLoader(
             val_dataset, self.opt.batch_size, False,
             num_workers=1, pin_memory=True, drop_last=True)
-        test_dataset = self.dataset(
-            self.opt.data_path, test_filenames, self.opt.height, self.opt.width,
-            self.opt.frame_ids, 4, is_train=False, img_ext=img_ext,
-            load_gt_poses=False)
         self.test_loader = DataLoader(
             test_dataset, 1, False,
             num_workers=1, pin_memory=True, drop_last=True,)
