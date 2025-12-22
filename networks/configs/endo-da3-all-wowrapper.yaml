@@ -60,11 +60,11 @@ head:
   output_dim: 2
   features: &head_features 128
   out_channels: &head_out_channels [96, 192, 384, 768]
-  # activation: "exp"
-  # head_names: ["depth", "depth_conf"]
+  activation: "exp"
+  head_names: ["depth", "depth_conf"]
   
-  activation: "sigmoid"
-  head_names: ["disp", "depth_conf"]
+  # activation: "sigmoid"
+  # head_names: ["disp", "depth_conf"]
 
 
 
@@ -87,9 +87,9 @@ cam_dec:
   # rot_representation: "quat"
   # rot_representation: "6D"
 
-  rot_representation: "quat_xyzw"
+  # rot_representation: "quat_xyzw"
   # rot_representation: "9D"
-  # rot_representation: "angle_axis"
+  rot_representation: "angle_axis"
   rot_scale_factor: 0.01
   trans_scale_factor: 0.01
   explicit_bias_init_6d9d: True

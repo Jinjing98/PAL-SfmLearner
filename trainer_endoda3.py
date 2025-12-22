@@ -72,6 +72,15 @@ class EndoDepthAnything3NetWrapper(torch.nn.Module):
         self.scales = scales
         self.rot_representation = rot_representation
         self.da3_depth_regression_target = da3_depth_regression_target
+        # sanity check:
+        if self.da3_depth_regression_target == "depth2disp":
+            assert self.model.head.head_main == "depth", f"Expected head_main='depth' for depth2disp regression, but got head_main='{self.model.head.head_main}'"
+            assert self.model.head.activation == "exp", f"Expected activation='sigmoid' for depth2disp regression, but got activation='{self.model.head.activation}'"
+        elif self.da3_depth_regression_target == "disp":
+            assert self.model.head.head_main == "disp", f"Expected head_main='disp' for disp regression, but got head_main='{self.model.head.head_main}'"
+            assert self.model.head.activation == "sigmoid", f"Expected activation='sigmoid' for disp regression, but got activation='{self.model.head.activation}'"
+        else:
+            raise ValueError(f"Unsupported depth regression target: {self.da3_depth_regression_target}")
         # Expose lora_type from wrapped model for compatibility
         self.lora_type = getattr(model, 'lora_type', 'none')
         
@@ -116,16 +125,13 @@ class EndoDepthAnything3NetWrapper(torch.nn.Module):
                                export_feat_layers=[], infer_gs=False, use_ray_pose=False)
         # Depth output: (B, S, H, W) if  DualDPT Head
         # Depth output: (B, S, H, W, 1) if DPT Head
-        head = self.model.head
+        # head = self.model.head
         if isinstance(self.model.head, DPT):
-            if head.head_main == "depth":
+            if self.model.head.head_main == "depth":
                 output.depth = output.depth.squeeze(-1)
-            elif head.head_main == "disp":
+            elif self.model.head.head_main == "disp":
                 output.disp = output.disp.squeeze(-1)
         if self.da3_depth_regression_target == "depth2disp":
-            assert head.head_main == "depth", f"Expected head_main='depth' for depth2disp regression, but got head_main='{head.head_main}'"
-            assert head.activation == "sigmoid", f"Expected activation='sigmoid' for depth2disp regression, but got activation='{head.activation}'"
-            
             depth = output.depth
             assert depth.dim() == 4, f"depth shape: {depth.shape}"
             if single_frame_input:
@@ -160,10 +166,6 @@ class EndoDepthAnything3NetWrapper(torch.nn.Module):
                                             mode="bilinear", align_corners=True)
                     outputs[("disp", scale)] = disp_scale
         elif self.da3_depth_regression_target == "disp":
-            # Sanity checks: verify head configuration matches disp regression
-            assert head.head_main == "disp", f"Expected head_main='disp' for disp regression, but got head_main='{head.head_main}'"
-            assert head.activation == "sigmoid", f"Expected activation='sigmoid' for disp regression, but got activation='{head.activation}'"
-
             disp = output.disp
             
             assert disp.dim() == 4, f"Expected disp shape (B, S, H, W), but got shape: {disp.shape}"
@@ -798,13 +800,7 @@ class Trainer:
                 print(f"Successfully loaded pretrained weights from {self.opt.pretrained_path} for depth net.\n")
             else:
                 assert False, "scratch training?"
-        elif self.opt.depth_model_type == "endodac":
-            # Sanity check: endodac model outputs disparity, so da3_depth_regression_target must be "disp"
-            da3_depth_regression_target = getattr(self.opt, 'da3_depth_regression_target', 'depth2disp')
-            assert da3_depth_regression_target == "disp", \
-                f"endodac depth model outputs disparity, so da3_depth_regression_target must be 'disp', " \
-                f"but got '{da3_depth_regression_target}'"
-            
+        elif self.opt.depth_model_type == "endodac":            
             # Initialize endodac model (same as in trainer_endodac.py)
             self.models["depth_model"] = endodac(
                 backbone_size=getattr(self.opt, 'backbone_size', 'base'), 
@@ -1758,19 +1754,16 @@ class Trainer:
         Generated images are saved into the `outputs` dictionary.
         """
         for scale in self.opt.scales:
-            if self.opt.da3_depth_regression_target in ["disp", "depth2disp"]:
-                disp = outputs[("disp", scale)]
-                if self.opt.v1_multiscale:
-                    source_scale = scale
-                else:
-                    disp = F.interpolate(
-                        disp, [self.opt.height, self.opt.width], mode="bilinear", align_corners=True)
-
-                _, depth = disp_to_depth_v2(disp, self.opt.min_depth, self.opt.max_depth, 
-                                            is_scaled_disp= (self.opt.da3_depth_regression_target == "depth2disp")) # sigmoid output is in range [0, 1]
-                outputs[("depth", 0, scale)] = depth # only used for metric computation;
+            disp = outputs[("disp", scale)]
+            if self.opt.v1_multiscale:
+                source_scale = scale
             else:
-                raise ValueError(f"Unsupported depth regression target: {self.opt.da3_depth_regression_target}")
+                disp = F.interpolate(
+                    disp, [self.opt.height, self.opt.width], mode="bilinear", align_corners=True)
+
+            _, depth = disp_to_depth_v2(disp, self.opt.min_depth, self.opt.max_depth, 
+                                        is_scaled_disp= (self.opt.da3_depth_regression_target == "depth2disp")) # sigmoid output is in range [0, 1]
+            outputs[("depth", 0, scale)] = depth # only used for metric computation;
 
             source_scale = 0
             # Use per-frame K if enabled, otherwise use regular K

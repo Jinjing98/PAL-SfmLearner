@@ -33,6 +33,7 @@ CUDA_VISIBLE_DEVICES=0 python /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLear
 --val_data_file d6_kf2.txt \
 --train_data_file train_files.txt \
 --val_data_file val_files.txt \
+--val_data_file test_files.txt test_files_sequence1_val.txt test_files_sequence2_val.txt \
 --test_data_file test_files.txt \
 --log_dir /mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm/endoDA3 \
 --log_dir /mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm/endodac/DA3/ \
@@ -53,29 +54,29 @@ CUDA_VISIBLE_DEVICES=0 python /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLear
 --exp_suffix d6_kf2_endodacB_angleaxis_baseline_gtK_intK_warmUp5k \
 --exp_suffix d6_kf2_endodacB_angleaxis_baseline_gtK_intK_warmUp5k_DA3 \
 --exp_suffix full_endoDA3B_DepthOnly_angleaxis_baseline_LorawarmUp40k_woRes_SingleScale \
---warm_up_step 20000 \
---warm_up_step 5000 \
---warm_up_step 40000 \
---endoda3_model_config /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/networks/configs/endo-da3-depth-wowrapper-default.yaml \
---endoda3_model_config /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/networks/configs/endo-da3-all-wowrapper-default.yaml \
---endoda3_model_config /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/networks/configs/endo-da3-all-wowrapper.yaml \
---pose_model_type da3_internal \
---pose_model_type separate_resnet \
---k_model_type da3_internal \
---learn_intrinsics \
---da3_depth_regression_target depth2disp \
---of_model_type raft \
---of_model_type separate_resnet \
 --exp_suffix full_endoDA3B_DepthPoseK_quanXYZW001_baseline_LorawarmUp40k_woRes_SingleScale \
 --exp_suffix full_endoDA3B_DepthPoseK_angleaxis001_baseline_LorawarmUp40k_woRes_SingleScale_LearnIntrinsics \
 --exp_suffix full_endoDA3B_DepthPoseK_angleaxis001_baseline_LorawarmUp40k_woRes_SingleScale_RAFT \
 --exp_suffix full_endoDA3B_DepthK_angleaxis001_baseline_LorawarmUp40k_woRes_SingleScale_LearnIntrinsics \
 --exp_suffix full_endoDA3B_DepthK_angleaxis001_baseline_LorawarmUp40k_woRes_SingleScale_LearnIntrinsics_fixMINDEPTH_ufzAllRaftLastOnly \
---raft_trainable_modules all \
+--warm_up_step 20000 \
+--warm_up_step 5000 \
+--warm_up_step 40000 \
+--of_model_type raft \
+--of_model_type separate_resnet \
 --raft_trainable_modules convnormrelu layer1 layer2_0 \
---use_raft_multi_iters \
 --raft_trainable_modules all \
---raft_trainable_modules convnormrelu \
+--use_raft_multi_iters \
+--endoda3_model_config /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/networks/configs/endo-da3-all-wowrapper.yaml \
+--da3_depth_regression_target disp \
+--da3_depth_regression_target depth2disp \
+--depth_model_type endodac \
+--depth_model_type depthanything3 \
+--pose_model_type da3_internal \
+--pose_model_type separate_resnet \
+--learn_intrinsics \
+--k_model_type mlp_with_pn_bottleneck_ipt \
+--k_model_type da3_internal \
 --of_samples \
 --of_samples_num 16 \
 --save_frequency 1000 \
@@ -83,14 +84,15 @@ CUDA_VISIBLE_DEVICES=0 python /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLear
 --num_epochs 20 \
 --batch_size 2 \
 --log_dir /mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm/endodac_dbg \
---train_data_file d6_kf2.txt \
 --train_data_file test_files.txt \
 --val_data_file test_files.txt \
 --val_data_file test_files_sequence1_val.txt \
---val_data_file test_files.txt test_files_sequence1_val.txt test_files_sequence2_val.txt \
---val_data_file test_files.txt \
---val_data_file test_files.txt test_files_sequence1_val.txt \
---depth_model_type endodac --pose_model_type separate_resnet --da3_depth_regression_target disp --k_model_type mlp_with_pn_bottleneck_ipt --warm_up_step 5000 --pretrained_path /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/weights/depthanything \
+# --depth_model_type endodac --of_supervised_with_which outputs_refined --pose_model_type separate_resnet --da3_depth_regression_target disp --k_model_type mlp_with_pn_bottleneck_ipt --warm_up_step 5000 --pretrained_path /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/weights/depthanything \
+
+# setup for endodac net
+# --depth_model_type endodac --of_supervised_with_which outputs_refined --pose_model_type separate_resnet --da3_depth_regression_target disp --k_model_type mlp_with_pn_bottleneck_ipt --warm_up_step 5000 --pretrained_path /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/weights/depthanything \
+
+
 # --da3_depth_regression_target disp \
 # --of_supervised_with_which inputs_color \
 # --use_perframe_gt_K \
