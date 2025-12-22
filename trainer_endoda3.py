@@ -38,7 +38,7 @@ from utils.warping import (
 )
 from loss import get_smooth_loss, get_smooth_bright, ncc_loss, SSIM
 from networks.pose_decoder import PoseDecoder
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, ConcatDataset
 from tensorboardX import SummaryWriter
 
 import torch.optim as optim
@@ -585,49 +585,82 @@ class Trainer:
         self.dataset = datasets_dict[self.opt.dataset]
 
         splits_dir = os.path.join(os.path.dirname(__file__), "splits", self.opt.split)
-        train_file = getattr(self.opt, 'train_data_file', 'train_files.txt') if not getattr(self.opt, 'of_samples', False) else getattr(self.opt, 'val_data_file', 'val_files.txt')
+        train_file = getattr(self.opt, 'train_data_file', 'train_files.txt') #if not getattr(self.opt, 'of_samples', False) else getattr(self.opt, 'val_data_file', 'val_files.txt')
         val_file = getattr(self.opt, 'val_data_file', 'val_files.txt')
         test_file = getattr(self.opt, 'test_data_file', 'test_files.txt')
         
-        train_fpath = os.path.join(splits_dir, train_file)
-        val_fpath = os.path.join(splits_dir, val_file)
-        test_fpath = os.path.join(splits_dir, test_file)
+        img_ext = '.png'
         
-        train_filenames = readlines(train_fpath)
-        val_filenames = readlines(val_fpath)
-        test_filenames = readlines(test_fpath)
-        img_ext = '.png'  
-
-        if getattr(self.opt, 'of_samples', False):
-            of_samples_num = getattr(self.opt, 'of_samples_num', 100)
-            train_filenames = train_filenames[:of_samples_num]
-            val_filenames = val_filenames[:of_samples_num]
-            test_filenames = test_filenames[:of_samples_num]
-            print("Overfitting mode: using {} Trn samples".format(len(train_filenames)))
-            print("Overfitting mode: using {} Val samples".format(len(val_filenames)))
-            print("Overfitting mode: using {} Test samples".format(len(test_filenames)))
-
-        num_train_samples = len(train_filenames)
+        def create_dataset_from_file_or_list(file_or_list, splits_dir, is_train, mode='train'):
+            """Create a dataset from a single file or a list of files by concatenating dataset instances
+            
+            Args:
+                file_or_list: Either a string (single file) or a list of strings (multiple files)
+                splits_dir: Directory containing the split files
+                is_train: Whether this is a training dataset
+                mode: 'train', 'val', or 'test' - used for determining dataset parameters
+                
+            Returns:
+                Dataset instance (single dataset or ConcatDataset if multiple files)
+            """
+            # Normalize to list
+            if isinstance(file_or_list, str):
+                files = [file_or_list]
+            else:
+                files = file_or_list
+            
+            datasets_list = []
+            total_samples = 0
+            
+            for f in files:
+                fpath = os.path.join(splits_dir, f)
+                filenames = readlines(fpath)
+                
+                # Apply overfitting limit if needed
+                if getattr(self.opt, 'of_samples', False):
+                    of_samples_num = getattr(self.opt, 'of_samples_num', 100)
+                    filenames = filenames[:of_samples_num]
+                
+                # Determine dataset parameters based on file name
+                is_test_file = os.path.basename(f) == 'test_files.txt'
+                is_sequence_file = os.path.basename(f) in ['test_files_sequence1_val.txt', 'test_files_sequence2_val.txt']
+                load_gt_poses = is_sequence_file if mode == 'val' else False #not is_test_file  # there is missing GT for d7k4 where a lot of test samples are
+                load_gt_depth = is_test_file if mode == 'val' else False
+                depth_offline_loading = is_test_file # use gt_depths.npz
+                
+                # Create dataset for this file
+                dataset = self.dataset(
+                    self.opt.data_path, filenames, self.opt.height, self.opt.width,
+                    self.opt.frame_ids, 4, is_train=is_train, img_ext=img_ext,
+                    load_gt_poses=load_gt_poses,
+                    load_gt_depth=load_gt_depth,
+                    depth_offline_loading=depth_offline_loading,
+                )
+                datasets_list.append(dataset)
+                total_samples += len(dataset)
+                print(f"  Loaded {len(dataset)} samples from {f}")
+            
+            # Concatenate if multiple datasets, otherwise return single dataset
+            if len(datasets_list) > 1:
+                print(f"  Concatenated {len(datasets_list)} datasets: {total_samples} total samples")
+                return ConcatDataset(datasets_list)
+            else:
+                return datasets_list[0]
+        
+        # Create datasets
+        train_dataset = create_dataset_from_file_or_list(train_file, splits_dir, is_train=True, mode='train')
+        val_dataset = create_dataset_from_file_or_list(val_file, splits_dir, is_train=False, mode='val')
+        test_dataset = create_dataset_from_file_or_list(test_file, splits_dir, is_train=False, mode='test')
+        
+        num_train_samples = len(train_dataset)
         self.num_total_steps = num_train_samples // self.opt.batch_size * self.opt.num_epochs
 
         # is_train = not getattr(self.opt, 'of_samples', False) # can be used for compute depth err
         shuffle = not getattr(self.opt, 'of_samples', False)  # Fixed order for overfitting
-        train_dataset = self.dataset(
-            self.opt.data_path, train_filenames, self.opt.height, self.opt.width,
-            self.opt.frame_ids, 4, is_train=True, img_ext=img_ext,
-            load_gt_poses=os.path.basename(train_fpath) != 'test_files.txt',# there is missing GT for d7k4 where a lot of test samples are
-            )
+        
         self.train_loader = DataLoader(
             train_dataset, self.opt.batch_size, shuffle,
             num_workers=self.opt.num_workers, pin_memory=True, drop_last=True)
-        val_dataset = self.dataset(
-            self.opt.data_path, val_filenames, self.opt.height, self.opt.width,
-            self.opt.frame_ids, 4, is_train=False, img_ext=img_ext,
-            load_gt_poses=os.path.basename(val_fpath) != 'test_files.txt',# there is missing GT for d7k4 where a lot of test samples are
-            # load_gt_depth=True,
-            load_gt_depth=os.path.basename(val_fpath) == 'test_files.txt',
-            depth_offline_loading=os.path.basename(val_fpath) == 'test_files.txt',  # Load from gt_depths.npz when test_files.txt for perfect alignment
-            )
         self.val_loader = DataLoader(
             val_dataset, self.opt.batch_size, False,
             num_workers=1, pin_memory=True, drop_last=True)
@@ -1448,7 +1481,7 @@ class Trainer:
             outputs = self.models["depth_model"](inputs["color_aug", 0, 0])
 
         if self.use_pose_net:
-            outputs.update(self.predict_poses(inputs, outputs, cached_depth_output=cached_depth_output, cached_raw_model_output=cached_raw_model_output))
+            outputs.update(self.predict_poses(inputs, None, cached_depth_output=None, cached_raw_model_output=cached_raw_model_output))
 
         self.generate_images_pred(inputs, outputs)
         losses = self.compute_losses(inputs, outputs)
@@ -1896,7 +1929,7 @@ class Trainer:
 
 
             if last_inputs is not None:
-                self.log("val", last_inputs, last_outputs, last_losses, metrics=metrics)
+                self.log("val", None, last_outputs, last_losses, metrics=metrics)
                 del last_inputs, last_outputs, last_losses
         else:
             try:
@@ -1960,8 +1993,8 @@ class Trainer:
             cached_depth_output = None
 
         if self.use_pose_net:
-            outputs.update(self.predict_poses(inputs, outputs, 
-                                             cached_depth_output=cached_depth_output if self.enable_seq_inputs else None,
+            outputs.update(self.predict_poses(inputs, None, 
+                                             cached_depth_output=None,
                                              cached_raw_model_output=cached_raw_model_output if self.enable_seq_inputs else None))
 
         self.generate_images_pred(inputs, outputs)
@@ -1974,6 +2007,16 @@ class Trainer:
         """
         losses = {}
         total_loss = 0
+
+        #////////////////////////////////////////
+        # enforce the losses are computed on data which has depth metrics computed
+        # Check if GT depth is available in inputs
+        if ("depth_gt", 0, 0) not in inputs:
+            return {}
+        # Get predicted depth from outputs
+        if ("depth", 0, 0) not in outputs:
+            return {}
+        #////////////////////////////////////////
 
         for scale in self.opt.scales:
 

@@ -18,7 +18,6 @@
 
 # CUDA_VISIBLE_DEVICES=0 python \
 # /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/networks/endo_da3.py
-
 CUDA_VISIBLE_DEVICES=0 python /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/train_endoda3.py \
 --data_path /mnt/cluster/workspaces/jinjingxu/SCARED_Images_Resized/ \
 --num_workers 2 \
@@ -85,8 +84,9 @@ CUDA_VISIBLE_DEVICES=0 python /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLear
 --train_data_file d6_kf2.txt \
 --train_data_file test_files.txt \
 --val_data_file test_files.txt \
---val_data_file d6_kf2.txt \
 --val_data_file test_files_sequence1_val.txt \
+--val_data_file test_files.txt test_files_sequence1_val.txt \
+--val_data_file test_files.txt \
 --of_supervised_with_which inputs_color \
 --use_perframe_gt_K \
 
