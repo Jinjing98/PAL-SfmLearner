@@ -664,21 +664,19 @@ class Trainer:
         # is_train = not getattr(self.opt, 'of_samples', False) # can be used for compute depth err
         shuffle = not getattr(self.opt, 'of_samples', False)  # Fixed order for overfitting
         
+
         def collate_fn(batch):
-            """Custom collate that handles possible different depth_gt key availbility in the same batch;
-            this happend for boundary of two concated datasets (no shuffle)"""
-            # Check if all samples have depth_gt
-            has_depth_gt = all(("depth_gt", 0, 0) in sample for sample in batch)
-            
-            # Use default collate for all keys
-            batched = torch.utils.data.dataloader.default_collate(batch)
-            
-            # Remove depth_gt if not all samples have it
-            if not has_depth_gt and ("depth_gt", 0, 0) in batched:
-                del batched[("depth_gt", 0, 0)]
-            
+            key_sets = [set(b.keys()) for b in batch]
+            required_keys = set.intersection(*key_sets)  # present in all
+            all_keys = set.union(*key_sets)
+            optional_keys = all_keys - required_keys
+
+            batched = {}
+            for k in required_keys:
+                batched[k] = torch.utils.data.default_collate([b[k] for b in batch])
+            # optional: handle optional_keys if you want placeholders or selective collate
             return batched
-        
+
         self.train_loader = DataLoader(
             train_dataset, self.opt.batch_size, shuffle,
             num_workers=self.opt.num_workers, pin_memory=True, drop_last=True)
