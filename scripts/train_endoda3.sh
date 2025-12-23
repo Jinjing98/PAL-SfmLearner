@@ -37,22 +37,16 @@ CUDA_VISIBLE_DEVICES=0 python /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLear
 --test_data_file test_files.txt \
 --log_dir /mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm/endoDA3 \
 --log_dir /mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm/endodac/DA3/ \
---pretrained_path depth-anything/da3-base \
+--log_dir /mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm/endodac/DA3_testset/ \
 --exp_suffix full_endodacB_6D_baseline \
 --exp_suffix full_endodacB_angleaxis_GTrot \
---exp_suffix full_endodacB_angleaxis_optmizedK \
 --exp_suffix full_endodacB_9D_defInit_naiveMul_baseline \
 --exp_suffix full_endodacB_quat_baseline \
 --exp_suffix full_endodacB_quat_regressXYZ_baseline \
 --exp_suffix full_endodacB_9D_baseline \
---exp_suffix d6_kf2_endodacB_angleaxis_baseline \
---exp_suffix d6_kf2_endodacB_angleaxis_baseline_gtK \
 --exp_suffix full_endodacB_angleaxis_baseline_warmUp5k \
 --exp_suffix full_endodacB_9D_baseline_warmUp5k \
 --exp_suffix full_endodacB_euler_baseline_warmUp5k \
---exp_suffix d6_kf2_endodacB_angleaxis_baseline_warmUp5k \
---exp_suffix d6_kf2_endodacB_angleaxis_baseline_gtK_intK_warmUp5k \
---exp_suffix d6_kf2_endodacB_angleaxis_baseline_gtK_intK_warmUp5k_DA3 \
 --exp_suffix full_endoDA3B_DepthOnly_angleaxis_baseline_LorawarmUp40k_woRes_SingleScale \
 --exp_suffix full_endoDA3B_DepthPoseK_quanXYZW001_baseline_LorawarmUp40k_woRes_SingleScale \
 --exp_suffix full_endoDA3B_DepthPoseK_angleaxis001_baseline_LorawarmUp40k_woRes_SingleScale_LearnIntrinsics \
@@ -62,41 +56,55 @@ CUDA_VISIBLE_DEVICES=0 python /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLear
 --warm_up_step 20000 \
 --warm_up_step 5000 \
 --warm_up_step 40000 \
+--af_model_type adjust_net \
+--af_model_type separate_resnet \
+--of_supervised_with_which outputs_refined \
+--of_supervised_with_which inputs_color \
 --of_model_type raft \
 --of_model_type separate_resnet \
 --raft_trainable_modules convnormrelu layer1 layer2_0 \
 --raft_trainable_modules all \
 --use_raft_multi_iters \
 --endoda3_model_config /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/networks/configs/endo-da3-all-wowrapper.yaml \
---da3_depth_regression_target disp \
---da3_depth_regression_target depth2disp \
---depth_model_type endodac \
---depth_model_type depthanything3 \
+--depth_model_type endodac --pretrained_path /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/weights/depthanything \
+--da3_depth_regression_target depth2disp --depth_model_type depthanything3 --pretrained_path depth-anything/da3-base \
+--da3_depth_regression_target disp --depth_model_type depthanything3 --pretrained_path depth-anything/da3-base \
 --pose_model_type da3_internal \
 --pose_model_type separate_resnet \
---learn_intrinsics \
---k_model_type mlp_with_pn_bottleneck_ipt \
 --k_model_type da3_internal \
+--k_model_type mlp_with_pn_bottleneck_ipt \
+--exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_disp \
 --of_samples \
 --of_samples_num 16 \
+--of_samples_num 8 \
 --save_frequency 1000 \
 --log_frequency 1 \
 --num_epochs 20 \
 --batch_size 2 \
 --log_dir /mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm/endodac_dbg \
 --train_data_file test_files.txt \
---val_data_file test_files.txt \
---val_data_file test_files_sequence1_val.txt \
-# --depth_model_type endodac --of_supervised_with_which outputs_refined --pose_model_type separate_resnet --da3_depth_regression_target disp --k_model_type mlp_with_pn_bottleneck_ipt --warm_up_step 5000 --pretrained_path /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/weights/depthanything \
+--val_data_file test_files.txt test_files_sequence1_val.txt \
+
+# --use_perframe_gt_K \
+# --learn_intrinsics \
+# --enable_seq_inputs \
+
 
 # setup for endodac net
 # --depth_model_type endodac --of_supervised_with_which outputs_refined --pose_model_type separate_resnet --da3_depth_regression_target disp --k_model_type mlp_with_pn_bottleneck_ipt --warm_up_step 5000 --pretrained_path /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/weights/depthanything \
 
-
-# --da3_depth_regression_target disp \
-# --of_supervised_with_which inputs_color \
-# --use_perframe_gt_K \
-# --enable_seq_inputs \
+# Baseline EndoDAC with OFrawSup
+#125433 full_endodacB_angleaxis_baseline_OFrawSup
+# adjust_net AF help?
+#125435 full_endodacB_angleaxis_baseline_OFrawSup_afAdjustNet
+# GT K help?
+#125437 full_endodacB_angleaxis_baseline_OFrawSup_gtK
+# RAFT flow help?
+#125436 full_endodacB_angleaxis_baseline_OFrawSup_ofRaft
+# DA3_alone(single_scale; depth2disp) help?
+#125438 full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_raw_depth
+# DA3_alone(single_scale; disp) help?
+#125440 full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_disp
 
 #125086 full_endoDA3B_DepthOnly_angleaxis_baseline_LorawarmUp40k_woRes_SingleScale: is infact no lora:None
 #125087 full_endoDA3B_DepthOnly_angleaxis_baseline_LorawarmUp40k_woRes_SingleScale: correcct lora fine tune

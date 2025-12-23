@@ -87,6 +87,11 @@ class MonodepthOptions:
                                  help="depth regression target",
                                  default="depth2disp",
                                  choices=["disp", "depth2disp"])
+        self.parser.add_argument("--af_model_type",
+                                 type=str,
+                                 help="affine transform model type",
+                                 default="separate_resnet",
+                                 choices=["separate_resnet","adjust_net"])
         self.parser.add_argument("--of_model_type",
                                  type=str,
                                  help="optical flow model type",
@@ -114,11 +119,6 @@ class MonodepthOptions:
                                  type=int,
                                  help="RAFT iteration steps to use for each scale (e.g., [2,5,8,11] for 4 scales)",
                                  default=[2, 5, 8, 11])
-        self.parser.add_argument("--af_model_type",
-                                 type=str,
-                                 help="affine transform model type",
-                                 default="separate_resnet",
-                                 choices=["separate_resnet"])
         self.parser.add_argument("--k_model_type",
                                  type=str,
                                  help="intrinsics model type",

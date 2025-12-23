@@ -22,6 +22,7 @@ from third_party.EndoDAC.models.encoders import ResnetEncoder
 from third_party.EndoDAC.models.decoders import PositionDecoder, TransformDecoder, DepthDecoder
 from third_party.EndoDAC.models.decoders import IntrinsicsHead, PoseCNN
 from networks.raft import RAFT
+from networks.adjust_net import adjust_net
 
 from utils.utils_optic_flow import get_occu_mask_backward, get_occu_mask_bidirection, optical_flow
 from utils.metrics import compute_depth_metrics, compute_pose_metrics, compute_depth_errors
@@ -579,8 +580,11 @@ class Trainer:
         self.parameters_to_train_0 += list(self.models["position"].parameters())
 
         self.construct_af_model()
-        self.parameters_to_train += list(self.models["transform_encoder"].parameters())
-        self.parameters_to_train += list(self.models["transform"].parameters())
+        if self.opt.af_model_type == "separate_resnet":
+            self.parameters_to_train += list(self.models["transform_encoder"].parameters())
+            self.parameters_to_train += list(self.models["transform"].parameters())
+        elif self.opt.af_model_type == "adjust_net":
+            self.parameters_to_train += list(self.models["transform"].parameters())
 
         # Hardcoded flags: enable learnable camera intrinsics and GT rotations
         self.learnable_K = False
@@ -660,12 +664,27 @@ class Trainer:
         # is_train = not getattr(self.opt, 'of_samples', False) # can be used for compute depth err
         shuffle = not getattr(self.opt, 'of_samples', False)  # Fixed order for overfitting
         
+        def collate_fn(batch):
+            """Custom collate that handles possible different depth_gt key availbility in the same batch;
+            this happend for boundary of two concated datasets (no shuffle)"""
+            # Check if all samples have depth_gt
+            has_depth_gt = all(("depth_gt", 0, 0) in sample for sample in batch)
+            
+            # Use default collate for all keys
+            batched = torch.utils.data.dataloader.default_collate(batch)
+            
+            # Remove depth_gt if not all samples have it
+            if not has_depth_gt and ("depth_gt", 0, 0) in batched:
+                del batched[("depth_gt", 0, 0)]
+            
+            return batched
+        
         self.train_loader = DataLoader(
             train_dataset, self.opt.batch_size, shuffle,
             num_workers=self.opt.num_workers, pin_memory=True, drop_last=True)
         self.val_loader = DataLoader(
             val_dataset, self.opt.batch_size, False,
-            num_workers=1, pin_memory=True, drop_last=True)
+            num_workers=1, pin_memory=True, drop_last=True, collate_fn=collate_fn)
         # test_dataset = self.dataset(
         #     self.opt.data_path, test_filenames, self.opt.height, self.opt.width,
         #     self.opt.frame_ids, 4, is_train=False, img_ext=img_ext,
@@ -1032,7 +1051,7 @@ class Trainer:
 
     def construct_af_model(self):
         """Construct and initialize the affine transform (AF) model.
-        Currently only supports separate_resnet type.
+        Supports separate_resnet and adjust_net types.
         """
         if self.opt.af_model_type == "separate_resnet":
             self.models["transform_encoder"] = ResnetEncoder(
@@ -1040,6 +1059,16 @@ class Trainer:
             self.models["transform_encoder"].to(self.device)
             self.models["transform"] = TransformDecoder(
                 self.models["transform_encoder"].num_ch_enc, self.opt.scales)
+            self.models["transform"].to(self.device)
+        elif self.opt.af_model_type == "adjust_net":
+            # adjust_net takes concatenated images (registration + color = 6 channels)
+            # and outputs appearance flow (3 channels)
+            # enable_multiscale = getattr(self.opt, 'adjust_net_multiscale', False)
+            self.models["transform"] = adjust_net(
+                num_input_channels=6, 
+                num_output_channels=3,
+                enable_multiscale=True,
+                scales=self.opt.scales)
             self.models["transform"].to(self.device)
         else:
             raise ValueError(f"Unsupported af_model_type: {self.opt.af_model_type}")
@@ -1085,8 +1114,9 @@ class Trainer:
         if "pose" in self.models:
             for param in self.models["pose"].parameters():
                 param.requires_grad = False
-        for param in self.models["transform_encoder"].parameters():
-            param.requires_grad = False
+        if "transform_encoder" in self.models:
+            for param in self.models["transform_encoder"].parameters():
+                param.requires_grad = False
         for param in self.models["transform"].parameters():
             param.requires_grad = False
         if self.opt.learn_intrinsics and "intrinsics_head" in self.models:
@@ -1098,7 +1128,8 @@ class Trainer:
             self.models["pose_encoder"].eval()
         if "pose" in self.models:
             self.models["pose"].eval()
-        self.models["transform_encoder"].eval()
+        if "transform_encoder" in self.models:
+            self.models["transform_encoder"].eval()
         self.models["transform"].eval()
         if self.opt.learn_intrinsics and "intrinsics_head" in self.models:
             self.models["intrinsics_head"].eval()
@@ -1143,8 +1174,9 @@ class Trainer:
         if "pose" in self.models:
             for param in self.models["pose"].parameters():
                 param.requires_grad = True
-        for param in self.models["transform_encoder"].parameters():
-            param.requires_grad = True
+        if "transform_encoder" in self.models:
+            for param in self.models["transform_encoder"].parameters():
+                param.requires_grad = True
         for param in self.models["transform"].parameters():
             param.requires_grad = True
         if self.opt.learn_intrinsics and "intrinsics_head" in self.models:
@@ -1160,7 +1192,8 @@ class Trainer:
             self.models["pose_encoder"].train()
         if "pose" in self.models:
             self.models["pose"].train()
-        self.models["transform_encoder"].train()
+        if "transform_encoder" in self.models:
+            self.models["transform_encoder"].train()
         self.models["transform"].train()
         if self.opt.learn_intrinsics and "intrinsics_head" in self.models:
             self.models["intrinsics_head"].train()
@@ -1169,7 +1202,8 @@ class Trainer:
         """Convert all models to testing/evaluation mode
         """
         self.models["depth_model"].eval()
-        self.models["transform_encoder"].eval()
+        if "transform_encoder" in self.models:
+            self.models["transform_encoder"].eval()
         self.models["transform"].eval()
         if "pose_encoder" in self.models:
             self.models["pose_encoder"].eval()
@@ -1193,6 +1227,9 @@ class Trainer:
         self.best_pose_metric = 'pose_rot_err_deg'
         
         # Track best values and epochs
+        # Track number of batches used for metrics (saved to info file)
+        self.depth_metrics_num_batches = 0
+        self.pose_metrics_num_batches = 0
         self.best_depth_value = None
         self.best_depth_epoch = None
         self.best_pose_value = None
@@ -1413,18 +1450,34 @@ class Trainer:
 
                     # transform
                     transform_input = [outputs[("registration", 0, f_i)], inputs[("color", 0, 0)]]
-                    transform_inputs = self.models["transform_encoder"](torch.cat(transform_input, 1))
-                    outputs_2 = self.models["transform"](transform_inputs)
+                    if self.opt.af_model_type == "separate_resnet":
+                        transform_inputs = self.models["transform_encoder"](torch.cat(transform_input, 1))
+                        outputs_2 = self.models["transform"](transform_inputs)
+                        for scale in self.opt.scales:
+                            outputs[("transform", scale, f_i)] = outputs_2[("transform", scale)]
+                            outputs[("transform", "high", scale, f_i)] = F.interpolate(
+                                outputs[("transform", scale, f_i)], [self.opt.height, self.opt.width], mode="bilinear",
+                                align_corners=True)
+                            outputs[("refined", scale, f_i)] = (outputs[("transform", "high", scale, f_i)] * outputs[
+                                ("occu_mask_backward", 0, f_i)].detach() + inputs[("color", 0, 0)])
+                            outputs[("refined", scale, f_i)] = torch.clamp(outputs[("refined", scale, f_i)], min=0.0,
+                                                                           max=1.0)
+                    elif self.opt.af_model_type == "adjust_net":
+                        # adjust_net takes concatenated input directly (no encoder)
+                        transform_outputs = self.models["transform"](torch.cat(transform_input, 1))
+                        # enable_multiscale = getattr(self.opt, 'adjust_net_multiscale', False)
+                        # if enable_multiscale:
+                        # Multi-scale output: dictionary with ("transform", scale) keys
+                        for scale in self.opt.scales:
+                            outputs[("transform", scale, f_i)] = transform_outputs[("transform", scale)]
+                            outputs[("transform", "high", scale, f_i)] = F.interpolate(
+                                outputs[("transform", scale, f_i)], [self.opt.height, self.opt.width], mode="bilinear",
+                                align_corners=True)
+                            outputs[("refined", scale, f_i)] = (outputs[("transform", "high", scale, f_i)] * outputs[
+                                ("occu_mask_backward", 0, f_i)].detach() + inputs[("color", 0, 0)])
+                            outputs[("refined", scale, f_i)] = torch.clamp(outputs[("refined", scale, f_i)], min=0.0,
+                                                                            max=1.0)
 
-                    for scale in self.opt.scales:
-                        outputs[("transform", scale, f_i)] = outputs_2[("transform", scale)]
-                        outputs[("transform", "high", scale, f_i)] = F.interpolate(
-                            outputs[("transform", scale, f_i)], [self.opt.height, self.opt.width], mode="bilinear",
-                            align_corners=True)
-                        outputs[("refined", scale, f_i)] = (outputs[("transform", "high", scale, f_i)] * outputs[
-                            ("occu_mask_backward", 0, f_i)].detach() + inputs[("color", 0, 0)])
-                        outputs[("refined", scale, f_i)] = torch.clamp(outputs[("refined", scale, f_i)], min=0.0,
-                                                                       max=1.0)
         return outputs
 
     def compute_losses_0(self, inputs, outputs):
@@ -1617,18 +1670,24 @@ class Trainer:
 
                     # transform
                     transform_input = [outputs[("registration", 0, f_i)], inputs[("color", 0, 0)]]
-                    transform_inputs = self.models["transform_encoder"](torch.cat(transform_input, 1))
-                    outputs_2 = self.models["transform"](transform_inputs)
-
-                    for scale in self.opt.scales:
-
-                        outputs[("transform", scale, f_i)] = outputs_2[("transform", scale)]
-                        outputs[("transform", "high", scale, f_i)] = F.interpolate(
-                            outputs[("transform", scale, f_i)], [self.opt.height, self.opt.width], mode="bilinear", align_corners=True)
-                        outputs[("refined", scale, f_i)] = (outputs[("transform", "high", scale, f_i)] * outputs[("occu_mask_backward", 0, f_i)].detach()  + inputs[("color", 0, 0)])
-                        outputs[("refined", scale, f_i)] = torch.clamp(outputs[("refined", scale, f_i)], min=0.0, max=1.0)
-                        # outputs[("grad_refined", scale, f_i)] = get_gradmap(outputs[("refined", scale, f_i)])
-                                                                                            
+                    if self.opt.af_model_type == "separate_resnet":
+                        transform_inputs = self.models["transform_encoder"](torch.cat(transform_input, 1))
+                        outputs_2 = self.models["transform"](transform_inputs)
+                        for scale in self.opt.scales:
+                            outputs[("transform", scale, f_i)] = outputs_2[("transform", scale)]
+                            outputs[("transform", "high", scale, f_i)] = F.interpolate(
+                                outputs[("transform", scale, f_i)], [self.opt.height, self.opt.width], mode="bilinear", align_corners=True)
+                            outputs[("refined", scale, f_i)] = (outputs[("transform", "high", scale, f_i)] * outputs[("occu_mask_backward", 0, f_i)].detach()  + inputs[("color", 0, 0)])
+                            outputs[("refined", scale, f_i)] = torch.clamp(outputs[("refined", scale, f_i)], min=0.0, max=1.0)
+                    elif self.opt.af_model_type == "adjust_net":
+                        # adjust_net takes concatenated input directly (no encoder)
+                        transform_outputs = self.models["transform"](torch.cat(transform_input, 1))
+                        for scale in self.opt.scales:
+                            outputs[("transform", scale, f_i)] = transform_outputs[("transform", scale)]
+                            outputs[("transform", "high", scale, f_i)] = F.interpolate(
+                                outputs[("transform", scale, f_i)], [self.opt.height, self.opt.width], mode="bilinear", align_corners=True)
+                            outputs[("refined", scale, f_i)] = (outputs[("transform", "high", scale, f_i)] * outputs[("occu_mask_backward", 0, f_i)].detach()  + inputs[("color", 0, 0)])
+                            outputs[("refined", scale, f_i)] = torch.clamp(outputs[("refined", scale, f_i)], min=0.0, max=1.0)
 
                     # pose and intrinsics
                     # da3_internal means using depthanything3's internal pose/K decoder
@@ -1909,6 +1968,10 @@ class Trainer:
             last_inputs = None
             last_outputs = None
             last_losses = None
+            
+            # Track number of batches used for each metric type
+            self.depth_metrics_num_batches = 0
+            self.pose_metrics_num_batches = 0
 
             def _accum(acc, new_metrics):
                 for k, v in new_metrics.items():
@@ -1927,6 +1990,7 @@ class Trainer:
                         depth_metrics = compute_depth_metrics(inputs, outputs)
                         if depth_metrics:
                             _accum(metrics_accum, depth_metrics)
+                            self.depth_metrics_num_batches += 1
 
                     if getattr(self.opt, 'compute_pose_metrics', False):
                         if report_quantile_pose_err:
@@ -1936,6 +2000,7 @@ class Trainer:
                         
                         if pose_metrics:
                             _accum(metrics_accum, pose_metrics)
+                            self.pose_metrics_num_batches += 1
                         
                         if report_quantile_pose_err:
                             _accum_raw(metrics_trans_ang_err_raw_accum, trans_ang_err_metrics_raw)
@@ -1964,17 +2029,24 @@ class Trainer:
             with torch.no_grad():
                 outputs, losses = self.process_batch_val(inputs)
                 
+                # Track number of batches used for each metric type
+                self.depth_metrics_num_batches = 0
+                self.pose_metrics_num_batches = 0
+                
                 # Compute metrics (depth and pose) if available
                 metrics = {}
+                
                 if getattr(self.opt, 'compute_depth_metrics', False):
                     depth_metrics = compute_depth_metrics(inputs, outputs)
                     if depth_metrics:
                         metrics.update(depth_metrics)
+                        self.depth_metrics_num_batches = 1
                 
                 if getattr(self.opt, 'compute_pose_metrics', False):
                     pose_metrics = compute_pose_metrics(inputs, outputs, self.opt.frame_ids)
                     if pose_metrics:
                         metrics.update(pose_metrics)
+                        self.pose_metrics_num_batches = 1
                 
                 self.log("val", inputs, outputs, losses, metrics=metrics if metrics else None)
                 del inputs, outputs, losses
@@ -2197,6 +2269,8 @@ class Trainer:
             'best_pose_metric': self.best_pose_metric,
             'best_pose_value': self.best_pose_value,
             'best_pose_epoch': self.best_pose_epoch,
+            'depth_metrics_num_batches': self.depth_metrics_num_batches,
+            'pose_metrics_num_batches': self.pose_metrics_num_batches,
         }
         
         # Save to JSON file in exp_dir
