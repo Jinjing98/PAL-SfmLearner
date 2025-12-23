@@ -74,7 +74,6 @@ CUDA_VISIBLE_DEVICES=0 python /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLear
 --k_model_type da3_internal \
 --k_model_type mlp_with_pn_bottleneck_ipt \
 --exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_ofRaft \
-# --use_perframe_gt_K \
 # --of_samples \
 # --of_samples_num 16 \
 # --of_samples_num 8 \
@@ -85,6 +84,8 @@ CUDA_VISIBLE_DEVICES=0 python /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLear
 # --log_dir /mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm/endodac_dbg \
 # --train_data_file test_files.txt \
 # --val_data_file test_files.txt test_files_sequence1_val.txt \
+# --train_data_file test_files_sequence1_val.txt \
+# --val_data_file test_files_sequence1_val.txt \
 
 # --use_perframe_gt_K \
 # --learn_intrinsics \
@@ -95,17 +96,17 @@ CUDA_VISIBLE_DEVICES=0 python /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLear
 # --depth_model_type endodac --of_supervised_with_which outputs_refined --pose_model_type separate_resnet --da3_depth_regression_target disp --k_model_type mlp_with_pn_bottleneck_ipt --warm_up_step 5000 --pretrained_path /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/weights/depthanything \
 
 # Baseline EndoDAC with OFrawSup
-#125445 125433 full_endodacB_angleaxis_baseline_OFrawSup
+#125452 125445 125433 full_endodacB_angleaxis_baseline_OFrawSup
 # adjust_net AF help?
-#125447 125435 full_endodacB_angleaxis_baseline_OFrawSup_afAdjustNet
+#125454 125447 125435 full_endodacB_angleaxis_baseline_OFrawSup_afAdjustNet
 # GT K help?
-#125446 125437 full_endodacB_angleaxis_baseline_OFrawSup_gtK
+#125453 125446 125437 full_endodacB_angleaxis_baseline_OFrawSup_gtK
 # RAFT flow help?
-#125451 125436 full_endodacB_angleaxis_baseline_OFrawSup_ofRaft
+#125459 125451 125436 full_endodacB_angleaxis_baseline_OFrawSup_ofRaft
 # DA3_alone(single_scale; depth2disp) help?
-#125448 125438 full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_raw_depth
+#125455 125448 125438 full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp
 # DA3_alone(single_scale; disp) help?
-#125450 125440 full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_disp
+#125458125450 125440 full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_disp
 
 #125086 full_endoDA3B_DepthOnly_angleaxis_baseline_LorawarmUp40k_woRes_SingleScale: is infact no lora:None
 #125087 full_endoDA3B_DepthOnly_angleaxis_baseline_LorawarmUp40k_woRes_SingleScale: correcct lora fine tune
