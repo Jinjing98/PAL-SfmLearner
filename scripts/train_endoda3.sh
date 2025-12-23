@@ -60,30 +60,31 @@ CUDA_VISIBLE_DEVICES=0 python /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLear
 --af_model_type separate_resnet \
 --of_supervised_with_which outputs_refined \
 --of_supervised_with_which inputs_color \
---of_model_type raft \
 --of_model_type separate_resnet \
+--of_model_type raft \
 --raft_trainable_modules convnormrelu layer1 layer2_0 \
 --raft_trainable_modules all \
 --use_raft_multi_iters \
 --endoda3_model_config /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/networks/configs/endo-da3-all-wowrapper.yaml \
---depth_model_type endodac --pretrained_path /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/weights/depthanything \
 --da3_depth_regression_target depth2disp --depth_model_type depthanything3 --pretrained_path depth-anything/da3-base \
 --da3_depth_regression_target disp --depth_model_type depthanything3 --pretrained_path depth-anything/da3-base \
+--depth_model_type endodac --pretrained_path /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/weights/depthanything \
 --pose_model_type da3_internal \
 --pose_model_type separate_resnet \
 --k_model_type da3_internal \
 --k_model_type mlp_with_pn_bottleneck_ipt \
---exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_disp \
---of_samples \
---of_samples_num 16 \
---of_samples_num 8 \
---save_frequency 1000 \
---log_frequency 1 \
---num_epochs 20 \
---batch_size 2 \
---log_dir /mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm/endodac_dbg \
---train_data_file test_files.txt \
---val_data_file test_files.txt test_files_sequence1_val.txt \
+--exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_ofRaft \
+# --use_perframe_gt_K \
+# --of_samples \
+# --of_samples_num 16 \
+# --of_samples_num 8 \
+# --save_frequency 1000 \
+# --log_frequency 1 \
+# --num_epochs 20 \
+# --batch_size 2 \
+# --log_dir /mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm/endodac_dbg \
+# --train_data_file test_files.txt \
+# --val_data_file test_files.txt test_files_sequence1_val.txt \
 
 # --use_perframe_gt_K \
 # --learn_intrinsics \
@@ -94,17 +95,17 @@ CUDA_VISIBLE_DEVICES=0 python /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLear
 # --depth_model_type endodac --of_supervised_with_which outputs_refined --pose_model_type separate_resnet --da3_depth_regression_target disp --k_model_type mlp_with_pn_bottleneck_ipt --warm_up_step 5000 --pretrained_path /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/weights/depthanything \
 
 # Baseline EndoDAC with OFrawSup
-#125433 full_endodacB_angleaxis_baseline_OFrawSup
+#125445 125433 full_endodacB_angleaxis_baseline_OFrawSup
 # adjust_net AF help?
-#125435 full_endodacB_angleaxis_baseline_OFrawSup_afAdjustNet
+#125447 125435 full_endodacB_angleaxis_baseline_OFrawSup_afAdjustNet
 # GT K help?
-#125437 full_endodacB_angleaxis_baseline_OFrawSup_gtK
+#125446 125437 full_endodacB_angleaxis_baseline_OFrawSup_gtK
 # RAFT flow help?
-#125436 full_endodacB_angleaxis_baseline_OFrawSup_ofRaft
+#125451 125436 full_endodacB_angleaxis_baseline_OFrawSup_ofRaft
 # DA3_alone(single_scale; depth2disp) help?
-#125438 full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_raw_depth
+#125448 125438 full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_raw_depth
 # DA3_alone(single_scale; disp) help?
-#125440 full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_disp
+#125450 125440 full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_disp
 
 #125086 full_endoDA3B_DepthOnly_angleaxis_baseline_LorawarmUp40k_woRes_SingleScale: is infact no lora:None
 #125087 full_endoDA3B_DepthOnly_angleaxis_baseline_LorawarmUp40k_woRes_SingleScale: correcct lora fine tune
