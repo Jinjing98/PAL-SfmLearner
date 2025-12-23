@@ -665,7 +665,7 @@ class Trainer:
         shuffle = not getattr(self.opt, 'of_samples', False)  # Fixed order for overfitting
         
 
-        def collate_fn(batch):
+        def collate_fn_flexible(batch):
             key_sets = [set(b.keys()) for b in batch]
             required_keys = set.intersection(*key_sets)  # present in all
             all_keys = set.union(*key_sets)
@@ -682,7 +682,7 @@ class Trainer:
             num_workers=self.opt.num_workers, pin_memory=True, drop_last=True)
         self.val_loader = DataLoader(
             val_dataset, self.opt.batch_size, False,
-            num_workers=1, pin_memory=True, drop_last=True, collate_fn=collate_fn)
+            num_workers=1, pin_memory=True, drop_last=True, collate_fn=collate_fn_flexible)
         # test_dataset = self.dataset(
         #     self.opt.data_path, test_filenames, self.opt.height, self.opt.width,
         #     self.opt.frame_ids, 4, is_train=False, img_ext=img_ext,
@@ -1778,9 +1778,14 @@ class Trainer:
                         if ("gt_c2w_poses", 0) in inputs and ("gt_c2w_poses", f_i) in inputs:
                             gt_tgt_abs_poses = inputs[("gt_c2w_poses", 0)]  # (B, 4, 4)
                             gt_src_abs_poses = inputs[("gt_c2w_poses", f_i)]  # (B, 4, 4)
-                            gt_tgt2src_rel_poses = torch.inverse(gt_src_abs_poses) @ gt_tgt_abs_poses
-                            outputs[("cam_T_cam", 0, f_i)][:, :3, :3] = gt_tgt2src_rel_poses[:, :3, :3]
+                            gt_tgt2src_rel_poses = torch.linalg.inv(gt_src_abs_poses)@gt_tgt_abs_poses
                             # If desired, translation could also be replaced; keeping network translation for now.
+                            outputs[("cam_T_cam", 0, f_i)][:, :3, :3] = gt_tgt2src_rel_poses[:, :3, :3]
+                            # scale down the trans with e-3 with proper grad propagation
+                            outputs[("cam_T_cam", 0, f_i)][:, :3, 3] = gt_tgt2src_rel_poses[:, :3, 3] * 5e-4
+
+                        else:
+                            assert 0,'make sure train data alwasy have gt_poses if we want to debug with gt_poses estimates for upperbound.'
                     
         return outputs
 

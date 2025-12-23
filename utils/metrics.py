@@ -187,6 +187,57 @@ def rot_ang_loss(R, Rgt, eps=1e-6):
     return R_err.mean(), R_err
 
 
+
+def rot_ang_loss_num_stable(R, Rgt, eps=1e-6, frob_tol=1e-6):
+    """
+    Numerically stable rotation angular error with orthonormalization.
+    Args:
+        R: estimated rotation matrix [B, 3, 3]
+        Rgt: ground-truth rotation matrix [B, 3, 3]
+        eps: clamp epsilon for acos
+        frob_tol: tolerance on Frobenius norm to treat residual as identity
+    Returns:
+        R_err_mean: mean rotation angular error (in radians)
+        R_err: rotation angular error per sample [B]
+    """
+    # Do the angle computation in float64 for better numerical stability and
+    # re-orthonormalize the rotation blocks to suppress tiny residual angles.
+    R_d = R.double()
+    Rgt_d = Rgt.double()
+
+    def _orthonormalize(rot):
+        # SVD-based projection onto SO(3)
+        U, _, Vh = torch.linalg.svd(rot)
+        rot_ortho = U @ Vh
+        # Fix possible reflection to ensure det=+1
+        det = torch.linalg.det(rot_ortho)
+        neg_mask = det < 0
+        if neg_mask.any():
+            Vh_fix = Vh.clone()
+            Vh_fix[neg_mask, -1, :] *= -1
+            rot_ortho = U @ Vh_fix
+        return rot_ortho
+
+    R_o = _orthonormalize(R_d)
+    Rgt_o = _orthonormalize(Rgt_d)
+
+    residual = torch.matmul(R_o.transpose(1, 2), Rgt_o)
+    trace = torch.diagonal(residual, dim1=-2, dim2=-1).sum(-1)
+    cosine = (trace - 1) / 2
+    cosine = torch.clamp(cosine, -1.0 + eps, 1.0 - eps)
+
+    # If matrices are effectively identical, avoid tiny residual angles.
+    # Use a Frobenius norm check on the relative rotation to be robust.
+    I = torch.eye(3, device=residual.device, dtype=residual.dtype).unsqueeze(0)
+    delta = residual - I
+    frob_norm = torch.linalg.norm(delta, dim=(1, 2))
+    close_to_identity = frob_norm < frob_tol
+
+    R_err = torch.acos(cosine)
+    R_err[close_to_identity] = 0.0
+    return R_err.mean().to(R.dtype), R_err.to(R.dtype)
+
+
 def compute_pose_error_v2(gt_rel_poses, pred_rel_poses, ret_raw=False):
     """
     Compute pose errors between ground truth and predicted relative poses.
@@ -211,7 +262,10 @@ def compute_pose_error_v2(gt_rel_poses, pred_rel_poses, ret_raw=False):
     trans_err_scale, trans_err_scale_raw = transl_scale_loss(t, tgt, norm_gt=False, norm_esti=False)
 
     # Compute rotation error
-    rot_err, rot_err_raw = rot_ang_loss(R, Rgt)
+    # rot_err, rot_err_raw = rot_ang_loss(R, Rgt)
+    # expensive but num stable: is able to report 0 rot_err if the rot mat are exacitly the same.
+    # (0.08 deg  if not)
+    rot_err, rot_err_raw = rot_ang_loss_num_stable(R, Rgt)
     
     err_dict = {
         'trans_err_ang_deg': trans_err_ang * 180 / torch.pi,
@@ -270,7 +324,7 @@ def compute_pose_metrics(inputs, outputs, frame_ids, ret_raw=False):
         pred_rel_poses_batch = outputs[("cam_T_cam", 0, frame_id)].detach()  # (B, 4, 4)
         
         # Compute GT relative poses: T_target_to_source = inv(T_source) @ T_target
-        gt_tgt2src_rel_poses = torch.inverse(gt_src_abs_poses) @ gt_tgt_abs_poses
+        gt_tgt2src_rel_poses = torch.linalg.inv(gt_src_abs_poses) @ gt_tgt_abs_poses
         
         assert gt_tgt2src_rel_poses.shape == pred_rel_poses_batch.shape, \
             f'gt_tgt2src_rel_poses.shape: {gt_tgt2src_rel_poses.shape}, pred_rel_poses_batch.shape: {pred_rel_poses_batch.shape}'

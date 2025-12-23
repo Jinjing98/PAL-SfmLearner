@@ -219,9 +219,17 @@ def create_dataset_from_file_or_list(file_or_list, splits_dir, dataset_class, da
             filenames = filenames[:of_samples_num]
         
         # Determine dataset parameters based on file name
+        # the flag for val data is critical to affect the data splict where val_err is reported
+        # d7k4(cover a lot in test_files.txt) gt pose is missing
         is_test_file = os.path.basename(f) == 'test_files.txt'
         is_sequence_file = os.path.basename(f) in ['test_files_sequence1_val.txt', 'test_files_sequence2_val.txt']
-        load_gt_poses = is_sequence_file if mode == 'val' else False
+        if mode == 'val':
+            load_gt_poses = is_sequence_file
+        elif mode == 'train':
+             # always load_gt_poses for train so as to enable debug_With_gt_pose_Estimated
+            load_gt_poses = True
+        else:
+            load_gt_poses = False
         load_gt_depth = is_test_file if mode == 'val' else False
         depth_offline_loading = is_test_file  # use gt_depths.npz
         

@@ -60,8 +60,8 @@ CUDA_VISIBLE_DEVICES=0 python /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLear
 --af_model_type separate_resnet \
 --of_supervised_with_which outputs_refined \
 --of_supervised_with_which inputs_color \
---of_model_type separate_resnet \
 --of_model_type raft \
+--of_model_type separate_resnet \
 --raft_trainable_modules convnormrelu layer1 layer2_0 \
 --raft_trainable_modules all \
 --use_raft_multi_iters \
@@ -73,19 +73,20 @@ CUDA_VISIBLE_DEVICES=0 python /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLear
 --pose_model_type separate_resnet \
 --k_model_type da3_internal \
 --k_model_type mlp_with_pn_bottleneck_ipt \
---exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_ofRaft \
-# --of_samples \
-# --of_samples_num 16 \
-# --of_samples_num 8 \
-# --save_frequency 1000 \
-# --log_frequency 1 \
-# --num_epochs 20 \
-# --batch_size 2 \
-# --log_dir /mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm/endodac_dbg \
-# --train_data_file test_files.txt \
-# --val_data_file test_files.txt test_files_sequence1_val.txt \
-# --train_data_file test_files_sequence1_val.txt \
-# --val_data_file test_files_sequence1_val.txt \
+--exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_gtPose5e04_b6 \
+--of_samples \
+--of_samples_num 16 \
+--of_samples_num 8 \
+--batch_size 2 \
+--save_frequency 1000 \
+--log_frequency 1 \
+--num_epochs 20 \
+--log_dir /mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm/endodac_dbg \
+--train_data_file test_files.txt \
+--val_data_file test_files.txt test_files_sequence1_val.txt \
+--train_data_file test_files_sequence1_val.txt \
+--val_data_file test_files_sequence1_val.txt \
+--val_data_file test_files.txt \
 
 # --use_perframe_gt_K \
 # --learn_intrinsics \
