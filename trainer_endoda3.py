@@ -1228,6 +1228,7 @@ class Trainer:
         # Track number of batches used for metrics (saved to info file)
         self.depth_metrics_num_batches = 0
         self.pose_metrics_num_batches = 0
+        self.val_losses_num_batches = 0
         self.best_depth_value = None
         self.best_depth_epoch = None
         self.best_pose_value = None
@@ -1968,13 +1969,14 @@ class Trainer:
             metrics_accum = {}
             metrics_trans_ang_err_raw_accum = {}
             metrics_rot_err_raw_accum = {}
+            losses_accum = {}
             last_inputs = None
             last_outputs = None
-            last_losses = None
             
             # Track number of batches used for each metric type
             self.depth_metrics_num_batches = 0
             self.pose_metrics_num_batches = 0
+            self.val_losses_num_batches = 0
 
             def _accum(acc, new_metrics):
                 for k, v in new_metrics.items():
@@ -1986,8 +1988,13 @@ class Trainer:
 
             with torch.no_grad():
                 for inputs in self.val_loader:
+                    
                     outputs, losses = self.process_batch_val(inputs)
-                    last_inputs, last_outputs, last_losses = inputs, outputs, losses
+                    if losses:
+                        _accum(losses_accum, losses)
+                        self.val_losses_num_batches += 1
+
+                    last_inputs, last_outputs = inputs, outputs
 
                     if getattr(self.opt, 'compute_depth_metrics', False):
                         depth_metrics = compute_depth_metrics(inputs, outputs)
@@ -2008,6 +2015,7 @@ class Trainer:
                         if report_quantile_pose_err:
                             _accum_raw(metrics_trans_ang_err_raw_accum, trans_ang_err_metrics_raw)
                             _accum_raw(metrics_rot_err_raw_accum, rot_err_metrics_raw)
+            
             # Average accumulated metrics
             metrics = {k: sum(v_list) / len(v_list) for k, v_list in metrics_accum.items()} if metrics_accum else None
             if report_quantile_pose_err and metrics_trans_ang_err_raw_accum:
@@ -2017,11 +2025,13 @@ class Trainer:
                     metrics_rot_err_raw = {k + f'_Q{q_i}': np.quantile(v, q_i) for k, v in metrics_rot_err_raw_accum.items()} if metrics_rot_err_raw_accum else None
                     metrics.update(metrics_trans_ang_err_raw)
                     metrics.update(metrics_rot_err_raw)
-
+            
+            # Average accumulated losses
+            losses = {k: sum(v_list) / len(v_list) for k, v_list in losses_accum.items()} if losses_accum else {}
 
             if last_inputs is not None:
-                self.log("val", None, last_outputs, last_losses, metrics=metrics)
-                del last_inputs, last_outputs, last_losses
+                self.log("val", None, last_outputs, losses, metrics=metrics)
+                del last_inputs, last_outputs
         else:
             try:
                 inputs = next(self.val_iter)
@@ -2030,11 +2040,14 @@ class Trainer:
                 inputs = next(self.val_iter)
 
             with torch.no_grad():
-                outputs, losses = self.process_batch_val(inputs)
-                
                 # Track number of batches used for each metric type
                 self.depth_metrics_num_batches = 0
                 self.pose_metrics_num_batches = 0
+                self.val_losses_num_batches = 0
+
+                outputs, losses = self.process_batch_val(inputs)
+                if losses:
+                    self.val_losses_num_batches = 1
                 
                 # Compute metrics (depth and pose) if available
                 metrics = {}
@@ -2097,6 +2110,7 @@ class Trainer:
                                              cached_raw_model_output=cached_raw_model_output if self.enable_seq_inputs else None))
 
         self.generate_images_pred(inputs, outputs)
+
         losses = self.compute_losses_val(inputs, outputs)
 
         return outputs, losses
@@ -2274,6 +2288,7 @@ class Trainer:
             'best_pose_epoch': self.best_pose_epoch,
             'depth_metrics_num_batches': self.depth_metrics_num_batches,
             'pose_metrics_num_batches': self.pose_metrics_num_batches,
+            'val_losses_num_batches': self.val_losses_num_batches,
         }
         
         # Save to JSON file in exp_dir

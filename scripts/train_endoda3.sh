@@ -77,16 +77,16 @@ CUDA_VISIBLE_DEVICES=0 python /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLear
 --of_samples \
 --of_samples_num 16 \
 --of_samples_num 8 \
---batch_size 2 \
 --save_frequency 1000 \
 --log_frequency 1 \
 --num_epochs 20 \
---log_dir /mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm/endodac_dbg \
 --train_data_file test_files.txt \
---val_data_file test_files.txt test_files_sequence1_val.txt \
 --train_data_file test_files_sequence1_val.txt \
 --val_data_file test_files_sequence1_val.txt \
 --val_data_file test_files.txt \
+--val_data_file test_files_sequence1_val.txt test_files.txt \
+# --batch_size 2 \
+# --log_dir /mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm/endodac_dbg \
 
 # --use_perframe_gt_K \
 # --learn_intrinsics \
