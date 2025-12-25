@@ -43,6 +43,7 @@ net:
   # global layers: 5, 7, 9, 11
   # endo_da3: avoid add res on global layers; only doable if temporal_dim S is 1
   # residual_block_indexes: [4, 6, 8, 10] 
+  # default no residual block
   residual_block_indexes: []
 
   # dino_resize_hw: actual input image size after resizing (used for residual block patch dimensions)
@@ -52,19 +53,24 @@ net:
 
 head:
   __object__:
-    path: depth_anything_3.model.dualdpt
-    name: DualDPT
+    # path: depth_anything_3.model.dualdpt
+    # name: DualDPT
+    path: networks.depth_decoder_da3
+    name: DualDPTMultiScale
     args: as_params
 
+  # whether to enable multi-scale output
+  enable_multi_scale: True
+  # enable_multi_scale: False
   dim_in: &head_dim_in 1536
   output_dim: 2
   features: &head_features 128
   out_channels: &head_out_channels [96, 192, 384, 768]
-  # activation: "exp"
-  # head_names: ["depth", "depth_conf"]
+  activation: "exp"
+  head_names: ["depth", "depth_conf"]
   
-  activation: "sigmoid"
-  head_names: ["disp", "depth_conf"]
+  # activation: "sigmoid"
+  # head_names: ["disp", "depth_conf"]
 
 
 

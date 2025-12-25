@@ -17,6 +17,7 @@ from omegaconf import OmegaConf
 from depth_anything_3.api import DepthAnything3
 from depth_anything_3.model.dualdpt import DualDPT
 from depth_anything_3.model.dpt import DPT
+from networks.depth_decoder_da3 import DPTMultiScale, DualDPTMultiScale
 from utils import load_pretrained_weights
 from third_party.EndoDAC.models.encoders import ResnetEncoder
 from third_party.EndoDAC.models.decoders import PositionDecoder, TransformDecoder, DepthDecoder
@@ -124,15 +125,90 @@ class EndoDepthAnything3NetWrapper(torch.nn.Module):
             # Call model normally
             output = self.model(x_mv, extrinsics=None, intrinsics=None, 
                                export_feat_layers=[], infer_gs=False, use_ray_pose=False)
+        # Check if multi-scale output is enabled
+        is_multi_scale = (isinstance(self.model.head, DPTMultiScale) and self.model.head.enable_multi_scale) or \
+                         (isinstance(self.model.head, DualDPTMultiScale) and self.model.head.enable_multi_scale)
+        
         # Depth output: (B, S, H, W) if  DualDPT Head
         # Depth output: (B, S, H, W, 1) if DPT Head
         # head = self.model.head
-        if isinstance(self.model.head, DPT):
-            if self.model.head.head_main == "depth":
-                output.depth = output.depth.squeeze(-1)
-            elif self.model.head.head_main == "disp":
-                output.disp = output.disp.squeeze(-1)
-        if self.da3_depth_regression_target == "depth2disp":
+        if not is_multi_scale:
+            # Original single-scale behavior
+            if isinstance(self.model.head, DPT) or isinstance(self.model.head, DPTMultiScale):
+                if self.model.head.head_main == "depth":
+                    output.depth = output.depth.squeeze(-1)
+                elif self.model.head.head_main == "disp":
+                    output.disp = output.disp.squeeze(-1)
+            else:
+                assert isinstance(self.model.head, DualDPT) or isinstance(self.model.head, DualDPTMultiScale), \
+                    f"model.head must be a DualDPT or DualDPTMultiScale, got {type(self.model.head)}"
+        
+        if is_multi_scale:
+            # Multi-scale output: handle output.depth_0, output.depth_1, output.depth_2, output.depth_3
+            # or output.disp_0, output.disp_1, output.disp_2, output.disp_3
+            head_main = self.model.head.head_main
+            outputs = {}
+            
+            if self.da3_depth_regression_target == "depth2disp":
+                # Extract multi-scale depth outputs: depth_0, depth_1, depth_2, depth_3
+                for scale_idx in range(4):
+                    scale_name = str(scale_idx)
+                    depth_key = f"{head_main}_{scale_name}"
+                    
+                    # Check if key exists in output (AddictDict supports both dict and attr access)
+                    if depth_key in output or hasattr(output, depth_key):
+                        depth = output[depth_key] if depth_key in output else getattr(output, depth_key)  # (B, S, H, W)
+                        assert depth.dim() == 4, f"depth_{scale_name} shape: {depth.shape}"
+                        
+                        if single_frame_input:
+                            assert depth.shape[1] == 1, f"depth_{scale_name} shape: {depth.shape}"
+                        
+                        # For multi-frame input with ref_view_strategy='first', extract depth for target frame (frame 0)
+                        if not single_frame_input:
+                            assert self.model.ref_view_strategy == "first", \
+                                f"ref_view_strategy must be 'first' for multi-frame depth extraction, got {self.model.ref_view_strategy}"
+                            depth = depth[:, 0:1, :, :]  # (B, 1, H, W)
+                        
+                        # Convert depth to disparity
+                        depth_clamped = torch.clamp(depth, min=MIN_DEPTH, max=MAX_DEPTH)
+                        disp = 1.0 / depth_clamped
+                        
+                        # Map scale_idx (0,1,2,3) to self.scales (e.g., [0,1,2,3])
+                        # Find matching scale in self.scales
+                        if scale_idx in self.scales:
+                            outputs[("disp", scale_idx)] = disp
+                    else:
+                        available_keys = list(output.keys()) if hasattr(output, 'keys') else [k for k in dir(output) if not k.startswith('_')]
+                        raise AttributeError(f"Multi-scale output {depth_key} not found in model output. "
+                                           f"Available keys: {available_keys}")
+            elif self.da3_depth_regression_target == "disp":
+                # Extract multi-scale disp outputs: disp_0, disp_1, disp_2, disp_3
+                for scale_idx in range(4):
+                    scale_name = str(scale_idx)
+                    disp_key = f"{head_main}_{scale_name}"
+                    
+                    # Check if key exists in output (AddictDict supports both dict and attr access)
+                    if disp_key in output or hasattr(output, disp_key):
+                        disp = output[disp_key] if disp_key in output else getattr(output, disp_key)  # (B, S, H, W)
+                        assert disp.dim() == 4, f"Expected disp_{scale_name} shape (B, S, H, W), but got shape: {disp.shape}"
+                        
+                        if single_frame_input:
+                            assert disp.shape[1] == 1, f"disp_{scale_name} shape: {disp.shape}"
+                        
+                        # For multi-frame input with ref_view_strategy='first', extract disp for target frame (frame 0)
+                        if not single_frame_input:
+                            assert self.model.ref_view_strategy == "first", \
+                                f"ref_view_strategy must be 'first' for multi-frame disp extraction, got {self.model.ref_view_strategy}"
+                            disp = disp[:, 0:1, :, :]  # (B, 1, H, W)
+                        
+                        # Map scale_idx to self.scales
+                        if scale_idx in self.scales:
+                            outputs[("disp", scale_idx)] = disp
+                    else:
+                        available_keys = list(output.keys()) if hasattr(output, 'keys') else [k for k in dir(output) if not k.startswith('_')]
+                        raise AttributeError(f"Multi-scale output {disp_key} not found in model output. "
+                                           f"Available keys: {available_keys}")
+        elif self.da3_depth_regression_target == "depth2disp":
             depth = output.depth
             assert depth.dim() == 4, f"depth shape: {depth.shape}"
             if single_frame_input:
