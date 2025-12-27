@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #SBATCH --job-name=end_pose
-#SBATCH --gpus=a100:1   # rtxa5000 p6000 rtx6000 a100 v100 # monst3r requires 48GB each, only a100 supports
+#SBATCH --gpus=v100:1   # rtxa5000 p6000 rtx6000 a100 v100 # monst3r requires 48GB each, only a100 supports
 #SBATCH --nodes=1  # several gpus on one node
 #SBATCH --ntasks-per-node=1 #used for multi gpu training
 #SBATCH --mem=48G #64G #35G#25G  # 20G may cause bus error?   # mem * num_GPUS
@@ -62,31 +62,38 @@ CUDA_VISIBLE_DEVICES=0 python /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLear
 --of_supervised_with_which inputs_color \
 --of_model_type raft \
 --of_model_type separate_resnet \
---raft_trainable_modules convnormrelu layer1 layer2_0 \
 --raft_trainable_modules all \
+--raft_trainable_modules convnormrelu layer1 layer2_0 \
 --use_raft_multi_iters \
 --endoda3_model_config /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/networks/configs/endo-da3-all-wowrapper.yaml \
 --da3_depth_regression_target disp --depth_model_type depthanything3 --pretrained_path depth-anything/da3-base \
---depth_model_type endodac --pretrained_path /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/weights/depthanything \
 --da3_depth_regression_target depth2disp --depth_model_type depthanything3 --pretrained_path depth-anything/da3-base \
+--depth_model_type endodac --pretrained_path /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/weights/depthanything \
 --pose_model_type da3_internal \
 --pose_model_type separate_resnet \
 --k_model_type da3_internal \
 --k_model_type mlp_with_pn_bottleneck_ipt \
---exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_wMultiScaleD_wRes \
-# --of_samples \
-# --of_samples_num 16 \
-# --of_samples_num 8 \
-# --save_frequency 1000 \
-# --log_frequency 1 \
-# --num_epochs 20 \
-# --train_data_file test_files.txt \
-# --train_data_file test_files_sequence1_val.txt \
-# --val_data_file test_files_sequence1_val.txt \
-# --val_data_file test_files.txt \
-# --val_data_file test_files_sequence1_val.txt test_files.txt \
+--exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_disp_wMultiScaleD_scratchHead \
+--exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_wMultiScaleD_scratchHead \
+--exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_wMultiScaleD_9D \
+--exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_wMultiScaleD_euler \
+--exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_wMultiScaleD_ofRaftEarlyLayers \
+--exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_wMultiScaleD_GTPose5e04 \
+--exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_GTPose5e04 \
+--of_samples \
+--of_samples_num 16 \
+--of_samples_num 8 \
+--save_frequency 1000 \
+--log_frequency 1 \
+--num_epochs 20 \
+--train_data_file test_files.txt \
+--train_data_file test_files_sequence1_val.txt \
+--train_data_file train_files.txt \
+--val_data_file test_files_sequence1_val.txt \
+--val_data_file test_files.txt \
+--val_data_file test_files_sequence2_val.txt test_files_sequence1_val.txt test_files.txt \
+--log_dir /mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm/endodac_dbg \
 # # --batch_size 2 \
-# # --log_dir /mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm/endodac_dbg \
 
 # # --use_perframe_gt_K \
 # # --learn_intrinsics \
@@ -96,9 +103,17 @@ CUDA_VISIBLE_DEVICES=0 python /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLear
 # setup for endodac net
 # --depth_model_type endodac --of_supervised_with_which outputs_refined --pose_model_type separate_resnet --da3_depth_regression_target disp --k_model_type mlp_with_pn_bottleneck_ipt --warm_up_step 5000 --pretrained_path /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/weights/depthanything \
 
+# wrong 125648 full_endodacB_angleaxis_baseline_OFrawSup_GTPose5e04
+
+# 125595 full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_wMultiScaleD_ofRaftEarlyLayers
+# 125593 full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_wMultiScaleD_euler
+# 125593 full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_wMultiScaleD_9D
+# failed 125592 full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_wMultiScaleD_GTPose5e04
+# 125590 full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_wMultiScaleD_scratchHead
+# 125591 full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_disp_wMultiScaleD_scratchHead 
+
 # DA3 with Multi-Scale Depth help?
 #125485 full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_wMultiScaleD
-
 # Baseline EndoDAC with OFrawSup
 #125452 125445 125433 full_endodacB_angleaxis_baseline_OFrawSup
 # adjust_net AF help?

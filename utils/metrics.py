@@ -142,6 +142,59 @@ def transl_ang_loss(t, tgt, eps=1e-6):
     return T_err.mean(), T_err
 
 
+def transl_ang_loss_num_stable(t, tgt, eps=1e-6, vec_tol=1e-6, rel_eps=1e-12):
+    """
+    Numerically stable translation direction angular error.
+    Uses relative epsilon for normalization to handle proportional vectors (e.g., pred = gt * scale).
+    Args: 
+        t: estimated translation vector [B, 3]
+        tgt: ground-truth translation vector [B, 3]
+        eps: clamp epsilon for acos
+        vec_tol: tolerance on vector difference norm to treat vectors as identical
+        rel_eps: relative epsilon for normalization (relative to vector norm)
+    Returns: 
+        T_err_mean: mean translation direction angular error (in radians)
+        T_err: translation direction angular error per sample [B]
+    """
+    assert t.dim() == 2, f't: {t.shape}'
+    assert tgt.dim() == 2, f'tgt: {tgt.shape}'
+    assert t.shape[1] == 3, f't: {t.shape}'
+    assert tgt.shape[1] == 3, f'tgt: {tgt.shape}'
+    
+    # Do the angle computation in float64 for better numerical stability
+    t_d = t.double()
+    tgt_d = tgt.double()
+    
+    t_norm = torch.norm(t_d, dim=1, keepdim=True)
+    tgt_norm = torch.norm(tgt_d, dim=1, keepdim=True)
+    
+    # Use relative epsilon: rel_eps * norm
+    # For proportional vectors (pred = gt * scale), this ensures eps scales proportionally
+    # which preserves the normalized direction
+    eps_t = t_norm * rel_eps
+    eps_tgt = tgt_norm * rel_eps
+    
+    # Handle zero vectors separately (use small absolute epsilon)
+    min_eps = torch.tensor(1e-15, dtype=t_d.dtype, device=t_d.device)
+    eps_t = torch.maximum(eps_t, min_eps)
+    eps_tgt = torch.maximum(eps_tgt, min_eps)
+    
+    t_normed = t_d / (t_norm + eps_t)
+    tgt_normed = tgt_d / (tgt_norm + eps_tgt)
+    
+    cosine = torch.sum(t_normed * tgt_normed, dim=1)
+    cosine = torch.clamp(cosine, -1.0 + eps, 1.0 - eps)
+    
+    # If vectors are effectively identical, avoid tiny residual angles.
+    vec_diff = t_normed - tgt_normed
+    vec_diff_norm = torch.norm(vec_diff, dim=1)
+    close_to_identical = vec_diff_norm < vec_tol
+    
+    T_err = torch.acos(cosine)
+    T_err[close_to_identical] = 0.0
+    return T_err.mean().to(t.dtype), T_err.to(t.dtype)
+
+
 def transl_scale_loss(t, tgt, eps=1e-6, norm_gt=False, norm_esti=False):
     """
     Compute translation scale error.
@@ -168,6 +221,51 @@ def transl_scale_loss(t, tgt, eps=1e-6, norm_gt=False, norm_esti=False):
     
     T_err = torch.norm(t_normed - tgt_normed, dim=1)
     return T_err.mean(), T_err
+
+
+def transl_scale_loss_num_stable(t, tgt, eps=1e-6, norm_gt=False, norm_esti=False, rel_eps=1e-12):
+    """
+    Numerically stable translation scale error.
+    Uses relative epsilon for normalization to handle proportional vectors (e.g., pred = gt * scale).
+    Args: 
+        t: estimated translation vector [B, 3]
+        tgt: ground-truth translation vector [B, 3]
+        norm_gt: whether to normalize ground truth vectors before computing loss
+        norm_esti: whether to normalize estimated vectors before computing loss
+        eps: small value to prevent division by zero (used when not normalizing)
+        rel_eps: relative epsilon for normalization (relative to vector norm)
+    Returns: 
+        T_err_mean: mean translation scale error
+        T_err: translation scale error per sample [B]
+    """
+    # Do the computation in float64 for better numerical stability
+    t_d = t.double()
+    tgt_d = tgt.double()
+    
+    if norm_esti:
+        t_norm = torch.norm(t_d, dim=1, keepdim=True)
+        # Use relative epsilon: rel_eps * norm
+        eps_t = t_norm * rel_eps
+        # Handle zero vectors separately (use small absolute epsilon)
+        min_eps = torch.tensor(1e-15, dtype=t_d.dtype, device=t_d.device)
+        eps_t = torch.maximum(eps_t, min_eps)
+        t_normed = t_d / (t_norm + eps_t)
+    else:
+        t_normed = t_d
+    
+    if norm_gt:
+        tgt_norm = torch.norm(tgt_d, dim=1, keepdim=True)
+        # Use relative epsilon: rel_eps * norm
+        eps_tgt = tgt_norm * rel_eps
+        # Handle zero vectors separately (use small absolute epsilon)
+        min_eps = torch.tensor(1e-15, dtype=tgt_d.dtype, device=tgt_d.device)
+        eps_tgt = torch.maximum(eps_tgt, min_eps)
+        tgt_normed = tgt_d / (tgt_norm + eps_tgt)
+    else:
+        tgt_normed = tgt_d
+    
+    T_err = torch.norm(t_normed - tgt_normed, dim=1)
+    return T_err.mean().to(t.dtype), T_err.to(t.dtype)
 
 
 def rot_ang_loss(R, Rgt, eps=1e-6):
@@ -258,8 +356,12 @@ def compute_pose_error_v2(gt_rel_poses, pred_rel_poses, ret_raw=False):
     Rgt = gt_rel_poses[:, :3, :3]   # [B, 3, 3]
 
     # Compute translation error with angular version and scale version
-    trans_err_ang, trans_err_ang_raw = transl_ang_loss(t, tgt)
-    trans_err_scale, trans_err_scale_raw = transl_scale_loss(t, tgt, norm_gt=False, norm_esti=False)
+    # trans_err_ang, trans_err_ang_raw = transl_ang_loss(t, tgt)
+    # expensive but num stable: is able to report 0 trans_err if the vectors are exactly the same.
+    trans_err_ang, trans_err_ang_raw = transl_ang_loss_num_stable(t, tgt)
+    # trans_err_scale, trans_err_scale_raw = transl_scale_loss(t, tgt, norm_gt=False, norm_esti=False)
+    # expensive but num stable: uses relative epsilon for better numerical stability
+    # trans_err_scale, trans_err_scale_raw = transl_scale_loss_num_stable(t, tgt, norm_gt=False, norm_esti=False)
 
     # Compute rotation error
     # rot_err, rot_err_raw = rot_ang_loss(R, Rgt)
@@ -269,7 +371,7 @@ def compute_pose_error_v2(gt_rel_poses, pred_rel_poses, ret_raw=False):
     
     err_dict = {
         'trans_err_ang_deg': trans_err_ang * 180 / torch.pi,
-        'trans_err_scale': trans_err_scale,
+        # 'trans_err_scale': trans_err_scale,
         'rot_err_deg': rot_err * 180 / torch.pi
     }
         

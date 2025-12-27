@@ -666,7 +666,7 @@ class Trainer:
         self.learnable_K = False
         self.replace_with_gt_rel_rotation = False
         # self.learnable_K = True
-        # self.replace_with_gt_rel_rotation = True
+        self.replace_with_gt_rel_rotation = True
 
         # Initialize learnable camera intrinsics (normalized coordinates)
         if self.learnable_K:
@@ -879,6 +879,9 @@ class Trainer:
                         if model_to_load.cam_dec.rot_representation != "quat_xyzw":
                             disable_cam_dec = ["cam_dec"]
                 
+                # scratch training: disable head completely
+                # disable_cam_dec.append("head")
+
                 # Load pretrained weights
                 load_pretrained_weights(
                     model=model_to_load,
@@ -887,10 +890,11 @@ class Trainer:
                     remove_prefixes=["model.", "pretrained."],
                     disable_modules=disable_cam_dec,
                     strict=False,
-                    max_levels=3,
+                    max_levels=2,
                     verbose=False
                 )
                 print(f"Successfully loaded pretrained weights from {self.opt.pretrained_path} for depth net.\n")
+                #
             else:
                 assert False, "scratch training?"
         elif self.opt.depth_model_type == "endodac":            
@@ -1861,8 +1865,11 @@ class Trainer:
                             # scale down the trans with e-3 with proper grad propagation
                             outputs[("cam_T_cam", 0, f_i)][:, :3, 3] = gt_tgt2src_rel_poses[:, :3, 3] * 5e-4
 
+                            # outputs[("cam_T_cam", 0, f_i)] = gt_tgt2src_rel_poses
+
                         else:
-                            assert 0,'make sure train data alwasy have gt_poses if we want to debug with gt_poses estimates for upperbound.'
+                            pass
+                            # assert 0,'make sure train data alwasy have gt_poses if we want to debug with gt_poses estimates for upperbound.'
                     
         return outputs
 
@@ -1901,7 +1908,7 @@ class Trainer:
                     disp, [self.opt.height, self.opt.width], mode="bilinear", align_corners=True)
 
             _, depth = disp_to_depth_v2(disp, self.opt.min_depth, self.opt.max_depth, 
-                                        is_scaled_disp= (self.opt.da3_depth_regression_target == "depth2disp")) # sigmoid output is in range [0, 1]
+                                        is_scaled_disp= (self.opt.da3_depth_regression_target == "depth2disp" and self.opt.depth_model_type == "depthanything3")) # sigmoid output is in range [0, 1]
             outputs[("depth", 0, scale)] = depth # only used for metric computation;
 
             source_scale = 0
