@@ -64,6 +64,10 @@ def disp_to_depth_v2(disp, min_depth, max_depth, is_scaled_disp):
     The formula for this conversion is given in the 'additional considerations'
     section of the paper.
     """
+    # always skip scaling in training
+    # if disp.requires_grad == True:
+        # is_scaled_disp = True
+
     if is_scaled_disp:
         # already in reasonable range w.r.t min_depth and max_depth
         scaled_disp = disp

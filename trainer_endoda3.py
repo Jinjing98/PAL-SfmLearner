@@ -89,7 +89,6 @@ class EndoDepthAnything3NetWrapper(torch.nn.Module):
             raise ValueError(f"Unsupported depth regression target: {self.da3_depth_regression_target}")
         # Expose lora_type from wrapped model for compatibility
         self.lora_type = getattr(model, 'lora_type', 'none')
-        
     def _depth_to_disp_v2(self, depth, per_image_norm = True, alpha=1.0):
         """
         Convert raw depth (unbounded, affine-invariant) to disparity using depth2disp_v2 method.

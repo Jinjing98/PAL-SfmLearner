@@ -62,19 +62,18 @@ CUDA_VISIBLE_DEVICES=0 python /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLear
 --of_supervised_with_which inputs_color \
 --of_model_type raft \
 --of_model_type separate_resnet \
---raft_trainable_modules all \
 --raft_trainable_modules convnormrelu layer1 layer2_0 \
+--raft_trainable_modules all \
 --use_raft_multi_iters \
 --endoda3_model_config /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/networks/configs/endo-da3-all-wowrapper.yaml \
---da3_depth_regression_target disp --depth_model_type depthanything3 --pretrained_path depth-anything/da3-base \
 --da3_depth_regression_target depth2disp_v2 --depth_model_type depthanything3 --pretrained_path depth-anything/da3-base \
 --depth_model_type endodac --pretrained_path /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/weights/depthanything \
+--da3_depth_regression_target disp --depth_model_type depthanything3 --pretrained_path depth-anything/da3-base \
 --da3_depth_regression_target depth2disp --depth_model_type depthanything3 --pretrained_path depth-anything/da3-base \
 --pose_model_type da3_internal \
 --pose_model_type separate_resnet \
 --k_model_type da3_internal \
 --k_model_type mlp_with_pn_bottleneck_ipt \
---exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_disp_wMultiScaleD_scratchHead \
 --exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_wMultiScaleD_scratchHead \
 --exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_wMultiScaleD_9D \
 --exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_wMultiScaleD_euler \
@@ -87,7 +86,12 @@ CUDA_VISIBLE_DEVICES=0 python /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLear
 --exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_GTPoseRotOnly \
 --exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_wMultiScaleD_lre05 \
 --exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_wMultiScaleD_lre05DepthOnly \
-# --learning_rate 0.00001 \
+--exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_ofRaftLastIterOnly \
+--exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_ofRaftLastIterOnly_freezeOF \
+--exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_disp_wMultiScaleD_scratchHead_woScalingInDisp2DepthinTrn \
+--exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_wMultiScaleD_KDA3 \
+--exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_wMultiScaleD_seqInput \
+--enable_seq_inputs \
 # --of_samples \
 # --of_samples_num 16 \
 # --of_samples_num 8 \
@@ -98,8 +102,8 @@ CUDA_VISIBLE_DEVICES=0 python /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLear
 # --train_data_file test_files_sequence1_val.txt \
 # --train_data_file train_files.txt \
 # --val_data_file test_files_sequence1_val.txt \
-# --val_data_file test_files.txt \
 # --val_data_file test_files_sequence2_val.txt test_files_sequence1_val.txt test_files.txt \
+# --val_data_file test_files.txt \
 # --log_dir /mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm/endodac_dbg \
 # # # --batch_size 2 \
 
@@ -111,10 +115,28 @@ CUDA_VISIBLE_DEVICES=0 python /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLear
 # setup for endodac net
 # --depth_model_type endodac --of_supervised_with_which outputs_refined --pose_model_type separate_resnet --da3_depth_regression_target disp --k_model_type mlp_with_pn_bottleneck_ipt --warm_up_step 5000 --pretrained_path /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/weights/depthanything \
 
+# explict OF supervision?
+# raw_disp; then skip scale in disp2depth
+# trans based data augmentation
+
+# can we have more consistent depth via seq input?
+# 125822 full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_wMultiScaleD_seqInput
+
+# can we involve learned k from DA3 to improve overral:
+# 125821 full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_wMultiScaleD_KDA3
+
+# scratch disp + DA3 work is limited due to too much nolinear?
+# 125817 full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_disp_wMultiScaleD_scratchHead_woScalingInDisp2DepthinTrn
+
 # DA3 need smaller lr?
 # 125741 full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_wMultiScaleD_lre05
 # only depthnet lr is changed to 1e-5 other remain 1e-4
 # 125762 full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_wMultiScaleD_lre05DepthOnly
+
+# verify if RAFT helps or not: raft_multi_all is only compariable
+# 125765 full_endodacB_angleaxis_baseline_OFrawSup_ofRaftLastIterOnly
+# verify if RAFT need to be tuned or not
+# 125767 full_endodacB_angleaxis_baseline_OFrawSup_ofRaftLastIterOnly_freezeOF
 
 # gt_pose: upperbound. sensitive to trans scale?
 # 125738 full_endodacB_angleaxis_baseline_OFrawSup_GTPose5e03
