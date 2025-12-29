@@ -67,9 +67,9 @@ CUDA_VISIBLE_DEVICES=0 python /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLear
 --use_raft_multi_iters \
 --endoda3_model_config /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/networks/configs/endo-da3-all-wowrapper.yaml \
 --da3_depth_regression_target disp --depth_model_type depthanything3 --pretrained_path depth-anything/da3-base \
+--da3_depth_regression_target depth2disp_v2 --depth_model_type depthanything3 --pretrained_path depth-anything/da3-base \
 --depth_model_type endodac --pretrained_path /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/weights/depthanything \
 --da3_depth_regression_target depth2disp --depth_model_type depthanything3 --pretrained_path depth-anything/da3-base \
---da3_depth_regression_target depth2disp_v2 --depth_model_type depthanything3 --pretrained_path depth-anything/da3-base \
 --pose_model_type da3_internal \
 --pose_model_type separate_resnet \
 --k_model_type da3_internal \
@@ -80,10 +80,14 @@ CUDA_VISIBLE_DEVICES=0 python /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLear
 --exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_wMultiScaleD_euler \
 --exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_wMultiScaleD_ofRaftEarlyLayers \
 --exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_wMultiScaleD_GTPose5e04 \
---exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_GTPose5e04 \
 --exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2dispV2normSigmoid_wMultiScaleD \
 --exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2dispV2normSigmoid_woDispsmooth_wMultiScaleD \
---disparity_smoothness 0.0 \
+--exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_GTPose5e04 \
+--exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_GTPose5e03 \
+--exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_GTPoseRotOnly \
+--exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_wMultiScaleD_lre05 \
+--exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_wMultiScaleD_lre05DepthOnly \
+# --learning_rate 0.00001 \
 # --of_samples \
 # --of_samples_num 16 \
 # --of_samples_num 8 \
@@ -106,6 +110,15 @@ CUDA_VISIBLE_DEVICES=0 python /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLear
 
 # setup for endodac net
 # --depth_model_type endodac --of_supervised_with_which outputs_refined --pose_model_type separate_resnet --da3_depth_regression_target disp --k_model_type mlp_with_pn_bottleneck_ipt --warm_up_step 5000 --pretrained_path /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/weights/depthanything \
+
+# DA3 need smaller lr?
+# 125741 full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_wMultiScaleD_lre05
+# only depthnet lr is changed to 1e-5 other remain 1e-4
+# 125762 full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_wMultiScaleD_lre05DepthOnly
+
+# gt_pose: upperbound. sensitive to trans scale?
+# 125738 full_endodacB_angleaxis_baseline_OFrawSup_GTPose5e03
+# 125739 full_endodacB_angleaxis_baseline_OFrawSup_GTPoseRotOnly
 
 # avoid smooth disp as DA3 already smooth it.
 # 125724 full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2dispV2normSigmoid_woDispsmooth_wMultiScaleD

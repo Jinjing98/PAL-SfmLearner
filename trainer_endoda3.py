@@ -838,6 +838,23 @@ class Trainer:
             self.parameters_to_train += list(self.models["predictive_mask"].parameters())
 
         self.model_optimizer = optim.Adam(self.parameters_to_train, self.opt.learning_rate)
+
+        # #////////////
+        # self.model_optimizer = optim.Adam(
+        #                                 [
+        #                                     {
+        #                                         "params": self.parameters_to_train,
+        #                                         "lr": self.opt.learning_rate,
+        #                                     },
+        #                                     {
+        #                                         "params":list(filter(lambda p: p.requires_grad, self.models["depth_model"].parameters())),
+        #                                         "lr": 1e-5,
+        #                                         # "lr": self.opt.learning_rate,
+        #                                     },
+        #                                 ]
+        #                             )
+        # #////////////
+
         self.model_lr_scheduler = optim.lr_scheduler.StepLR(
             self.model_optimizer, self.opt.scheduler_step_size, 0.1)
         self.model_optimizer_0 = optim.Adam(self.parameters_to_train_0, 1e-4)
@@ -2008,7 +2025,7 @@ class Trainer:
                             # If desired, translation could also be replaced; keeping network translation for now.
                             outputs[("cam_T_cam", 0, f_i)][:, :3, :3] = gt_tgt2src_rel_poses[:, :3, :3]
                             # scale down the trans with e-3 with proper grad propagation
-                            outputs[("cam_T_cam", 0, f_i)][:, :3, 3] = gt_tgt2src_rel_poses[:, :3, 3] * 5e-4
+                            # outputs[("cam_T_cam", 0, f_i)][:, :3, 3] = gt_tgt2src_rel_poses[:, :3, 3] * 5e-3
 
                             # outputs[("cam_T_cam", 0, f_i)] = gt_tgt2src_rel_poses
 
