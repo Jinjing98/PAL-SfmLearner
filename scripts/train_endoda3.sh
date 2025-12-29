@@ -67,8 +67,9 @@ CUDA_VISIBLE_DEVICES=0 python /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLear
 --use_raft_multi_iters \
 --endoda3_model_config /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/networks/configs/endo-da3-all-wowrapper.yaml \
 --da3_depth_regression_target disp --depth_model_type depthanything3 --pretrained_path depth-anything/da3-base \
---da3_depth_regression_target depth2disp --depth_model_type depthanything3 --pretrained_path depth-anything/da3-base \
 --depth_model_type endodac --pretrained_path /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/weights/depthanything \
+--da3_depth_regression_target depth2disp --depth_model_type depthanything3 --pretrained_path depth-anything/da3-base \
+--da3_depth_regression_target depth2disp_v2 --depth_model_type depthanything3 --pretrained_path depth-anything/da3-base \
 --pose_model_type da3_internal \
 --pose_model_type separate_resnet \
 --k_model_type da3_internal \
@@ -80,20 +81,23 @@ CUDA_VISIBLE_DEVICES=0 python /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLear
 --exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_wMultiScaleD_ofRaftEarlyLayers \
 --exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_wMultiScaleD_GTPose5e04 \
 --exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_GTPose5e04 \
---of_samples \
---of_samples_num 16 \
---of_samples_num 8 \
---save_frequency 1000 \
---log_frequency 1 \
---num_epochs 20 \
---train_data_file test_files.txt \
---train_data_file test_files_sequence1_val.txt \
---train_data_file train_files.txt \
---val_data_file test_files_sequence1_val.txt \
---val_data_file test_files.txt \
---val_data_file test_files_sequence2_val.txt test_files_sequence1_val.txt test_files.txt \
---log_dir /mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm/endodac_dbg \
-# # --batch_size 2 \
+--exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2dispV2normSigmoid_wMultiScaleD \
+--exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2dispV2normSigmoid_woDispsmooth_wMultiScaleD \
+--disparity_smoothness 0.0 \
+# --of_samples \
+# --of_samples_num 16 \
+# --of_samples_num 8 \
+# --save_frequency 1000 \
+# --log_frequency 1 \
+# --num_epochs 20 \
+# --train_data_file test_files.txt \
+# --train_data_file test_files_sequence1_val.txt \
+# --train_data_file train_files.txt \
+# --val_data_file test_files_sequence1_val.txt \
+# --val_data_file test_files.txt \
+# --val_data_file test_files_sequence2_val.txt test_files_sequence1_val.txt test_files.txt \
+# --log_dir /mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm/endodac_dbg \
+# # # --batch_size 2 \
 
 # # --use_perframe_gt_K \
 # # --learn_intrinsics \
@@ -103,6 +107,12 @@ CUDA_VISIBLE_DEVICES=0 python /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLear
 # setup for endodac net
 # --depth_model_type endodac --of_supervised_with_which outputs_refined --pose_model_type separate_resnet --da3_depth_regression_target disp --k_model_type mlp_with_pn_bottleneck_ipt --warm_up_step 5000 --pretrained_path /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/weights/depthanything \
 
+# avoid smooth disp as DA3 already smooth it.
+# 125724 full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2dispV2normSigmoid_woDispsmooth_wMultiScaleD
+# later saturation of DA3 backbone?
+# 125723 full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2dispV2normSigmoid_wMultiScaleD
+
+# 125708 full_endodacB_angleaxis_baseline_OFrawSup_GTPose5e04
 # wrong 125648 full_endodacB_angleaxis_baseline_OFrawSup_GTPose5e04
 
 # 125595 full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_wMultiScaleD_ofRaftEarlyLayers

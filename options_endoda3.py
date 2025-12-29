@@ -86,7 +86,7 @@ class MonodepthOptions:
                                  type=str,
                                  help="depth regression target",
                                  default="depth2disp",
-                                 choices=["disp", "depth2disp"])
+                                 choices=["disp", "depth2disp","depth2disp_v2"])
         self.parser.add_argument("--af_model_type",
                                  type=str,
                                  help="affine transform model type",
