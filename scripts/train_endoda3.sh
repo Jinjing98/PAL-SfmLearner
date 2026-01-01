@@ -89,9 +89,13 @@ CUDA_VISIBLE_DEVICES=0 python /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLear
 --exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_ofRaftLastIterOnly \
 --exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_ofRaftLastIterOnly_freezeOF \
 --exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_disp_wMultiScaleD_scratchHead_woScalingInDisp2DepthinTrn \
---exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_wMultiScaleD_KDA3 \
---exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_wMultiScaleD_seqInput \
---enable_seq_inputs \
+--exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_wMultiScaleD_KDA3Pretrainedfc_fov \
+--exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_wMultiScaleD_KDA3Scratchfc_fov_bounded_linear_sigmoid \
+--exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_wMultiScaleD_gtK \
+--exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_wMultiScaleD_KDacStyle \
+--learn_intrinsics \
+# --exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_wMultiScaleD_seqInput \
+# --enable_seq_inputs \
 # --of_samples \
 # --of_samples_num 16 \
 # --of_samples_num 8 \
@@ -127,11 +131,17 @@ CUDA_VISIBLE_DEVICES=0 python /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLear
 
 # scratch disp + DA3 work is limited due to too much nolinear?
 # 125817 full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_disp_wMultiScaleD_scratchHead_woScalingInDisp2DepthinTrn
+# 125924 full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_wMultiScaleD_KDA3Pretrainedfc_fov
+# 125926 full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_wMultiScaleD_KDA3Scratchfc_fov_bounded_linear_sigmoid
+# 125927 full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_wMultiScaleD_gtK
+# 125928 full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_wMultiScaleD_KDacStyle
 
 # DA3 need smaller lr?
 # 125741 full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_wMultiScaleD_lre05
 # only depthnet lr is changed to 1e-5 other remain 1e-4
 # 125762 full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_wMultiScaleD_lre05DepthOnly
+
+#  use explict OF supervision?
 
 # verify if RAFT helps or not: raft_multi_all is only compariable
 # 125765 full_endodacB_angleaxis_baseline_OFrawSup_ofRaftLastIterOnly

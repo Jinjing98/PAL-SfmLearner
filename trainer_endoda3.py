@@ -1038,8 +1038,15 @@ class Trainer:
                 if hasattr(model_to_load, 'cam_dec') and model_to_load.cam_dec is not None:
                     if hasattr(model_to_load.cam_dec, 'rot_representation'):
                         if model_to_load.cam_dec.rot_representation != "quat_xyzw":
-                            disable_cam_dec = ["cam_dec"]
-                
+                            # disable_cam_dec = ["cam_dec"] # old models before 01.01.2025
+                            disable_cam_dec.append("cam_dec.fc_qvec")
+                            disable_cam_dec.append("cam_dec.fc_t")
+                    if hasattr(model_to_load.cam_dec, 'fc_fov_arch'):
+                        if model_to_load.cam_dec.fc_fov_arch != "linear_relu":
+                            disable_cam_dec.append("cam_dec.fc_fov")
+
+                print('***disable_load_pretrained_weights_cam_dec: ', disable_cam_dec)
+
                 # scratch training: disable head completely
                 # disable_cam_dec.append("head")
 
@@ -1812,7 +1819,7 @@ class Trainer:
         # if self.opt.learn_intrinsics and ('K', scale) in outputs:
         if self.opt.learn_intrinsics:
             assert ('K', scale) in outputs, f"K for scale {scale} not found in outputs"
-            # Use predicted intrinsics from intrinsics_head
+            # Use predicted intrinsics from intrinsics_head 
             return outputs[('K', scale)], outputs[('inv_K', scale)]
         elif self.learnable_K:
             assert 0, 'disabled...'

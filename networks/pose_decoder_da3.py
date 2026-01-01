@@ -22,7 +22,8 @@ import torch.nn as nn
 class EndoCameraDec(nn.Module):
     def __init__(self, dim_in=1536, rot_representation="quat_xyzw", 
                  rot_scale_factor=1.0, trans_scale_factor=1.0,
-                 explicit_bias_init_6d9d=True):
+                 explicit_bias_init_6d9d=True, fc_fov_arch="linear_relu",
+                 fov_min=0.4, fov_max=1.2):
         super().__init__()
         # Rotation dimension mapping
         rot_dims = {
@@ -39,10 +40,17 @@ class EndoCameraDec(nn.Module):
                 f"Supported: {', '.join(rot_dims.keys())}"
             )
         
+        if fc_fov_arch not in ["linear_relu", "bounded_linear_sigmoid"]:
+            raise ValueError(
+                f"Unsupported fc_fov_arch: {fc_fov_arch}. "
+                f"Supported: 'linear_relu', 'bounded_linear_sigmoid'"
+            )
+        
         self.rot_representation = rot_representation
         self.rot_scale_factor = rot_scale_factor
         self.trans_scale_factor = trans_scale_factor
         self.explicit_bias_init_6d9d = explicit_bias_init_6d9d
+        self.fc_fov_arch = fc_fov_arch
         rot_dim = rot_dims[rot_representation]
         
         output_dim = dim_in
@@ -54,7 +62,18 @@ class EndoCameraDec(nn.Module):
         )
         self.fc_t = nn.Linear(output_dim, 3)
         self.fc_qvec = nn.Linear(output_dim, rot_dim)
-        self.fc_fov = nn.Sequential(nn.Linear(output_dim, 2), nn.ReLU())
+        
+        # Initialize FOV architecture
+        if fc_fov_arch == "linear_relu":
+            self.fc_fov = nn.Sequential(nn.Linear(output_dim, 2), nn.ReLU())
+        elif fc_fov_arch == "bounded_linear_sigmoid":
+            self.fc_fov = nn.Linear(output_dim, 2)
+            # Initialize weights and bias to zeros
+            nn.init.zeros_(self.fc_fov.weight)
+            nn.init.zeros_(self.fc_fov.bias)
+            # Register fov_min and fov_max as buffers (non-trainable parameters)
+            self.register_buffer('fov_min', torch.tensor(fov_min))
+            self.register_buffer('fov_max', torch.tensor(fov_max))
         
         # Apply Special Init on self.fc_qvec if 6D/9D and flag is enabled
         if self.explicit_bias_init_6d9d and self.rot_representation in ["6D", "9D"]:
@@ -122,7 +141,13 @@ class EndoCameraDec(nn.Module):
             else:
                 assert False, "Unsupported rotation representation"
             
-            out_fov = self.fc_fov(feat.float()).reshape(B, N, 2)
+            # Compute FOV based on architecture
+            if self.fc_fov_arch == "linear_relu":
+                out_fov = self.fc_fov(feat.float()).reshape(B, N, 2)
+            elif self.fc_fov_arch == "bounded_linear_sigmoid":
+                fov_raw = self.fc_fov(feat.float())
+                out_fov = self.fov_min + (self.fov_max - self.fov_min) * torch.sigmoid(fov_raw)
+                out_fov = out_fov.reshape(B, N, 2)
         else:
             # Extract rotation and fov from camera_encoding
             # Format: [T(3), rotation(M), fov_h(1), fov_w(1)]

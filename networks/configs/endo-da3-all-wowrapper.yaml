@@ -99,3 +99,5 @@ cam_dec:
   rot_scale_factor: 0.01
   trans_scale_factor: 0.01
   explicit_bias_init_6d9d: True
+  fc_fov_arch: "linear_relu" # default in da3
+  # fc_fov_arch: "bounded_linear_sigmoid" 
