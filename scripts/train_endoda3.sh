@@ -67,9 +67,9 @@ CUDA_VISIBLE_DEVICES=0 python /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLear
 --use_raft_multi_iters \
 --endoda3_model_config /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/networks/configs/endo-da3-all-wowrapper.yaml \
 --da3_depth_regression_target depth2disp_v2 --depth_model_type depthanything3 --pretrained_path depth-anything/da3-base \
---depth_model_type endodac --pretrained_path /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/weights/depthanything \
 --da3_depth_regression_target disp --depth_model_type depthanything3 --pretrained_path depth-anything/da3-base \
 --da3_depth_regression_target depth2disp --depth_model_type depthanything3 --pretrained_path depth-anything/da3-base \
+--depth_model_type endodac --pretrained_path /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/weights/depthanything \
 --pose_model_type da3_internal \
 --pose_model_type separate_resnet \
 --k_model_type da3_internal \
@@ -93,7 +93,8 @@ CUDA_VISIBLE_DEVICES=0 python /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLear
 --exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_wMultiScaleD_KDA3Scratchfc_fov_bounded_linear_sigmoid \
 --exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_wMultiScaleD_gtK \
 --exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_wMultiScaleD_KDacStyle \
---learn_intrinsics \
+--exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_transDataAug03 \
+# --learn_intrinsics \
 # --exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_wMultiScaleD_seqInput \
 # --enable_seq_inputs \
 # --of_samples \
@@ -121,7 +122,9 @@ CUDA_VISIBLE_DEVICES=0 python /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLear
 
 # explict OF supervision?
 # raw_disp; then skip scale in disp2depth
+
 # trans based data augmentation
+# 125938 full_endodacB_angleaxis_baseline_OFrawSup_transDataAug03
 
 # can we have more consistent depth via seq input?
 # 125822 full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_wMultiScaleD_seqInput

@@ -114,7 +114,7 @@ class MonoDataset(data.Dataset):
                                                interpolation=self.interp)
         self.load_depth = self.check_depth()
 
-    def preprocess(self, inputs, do_color_aug):
+    def preprocess(self, inputs, do_color_aug, do_trans_aug=False):
         """Resize colour images to the required scales and augment if required
 
         We create the color_aug object in advance and apply the same augmentation to all
@@ -132,10 +132,31 @@ class MonoDataset(data.Dataset):
              fn_idx, brightness_factor, contrast_factor, saturation_factor, hue_factor = transforms.ColorJitter.get_params(
                 self.brightness, self.contrast, self.saturation, self.hue)
 
+        # Per-frame translation fractions (generated on first encounter, reused for all scales)
+        frame_translations = {}
+
         for k in list(inputs):
             f = inputs[k]
             if "color" in k:
                 n, im, i = k
+                # apply trans_aug on 'color' and 'color_aug'
+                if do_trans_aug:
+                    # Generate translation fraction for this frame (if not already generated)
+                    if im not in frame_translations:
+                        frame_translations[im] = (
+                            random.uniform(-0.03, 0.03),  # tx_fraction
+                            random.uniform(-0.03, 0.03)   # ty_fraction
+                        )
+                    
+                    # Scale translation linearly with image size at current scale
+                    tx_fraction, ty_fraction = frame_translations[im]
+                    scale = 2 ** i
+                    tx = tx_fraction * (self.width // scale)
+                    ty = ty_fraction * (self.height // scale)
+                    
+                    f = F.affine(f, angle=0, translate=(tx, ty), scale=1.0, shear=0.0,
+                                interpolation=transforms.InterpolationMode.BILINEAR, fill=0)
+
                 inputs[(n, im, i)] = self.to_tensor(f)
                 if do_color_aug:
                     for fn_id in fn_idx:
@@ -147,6 +168,8 @@ class MonoDataset(data.Dataset):
                             f = F.adjust_saturation(f, saturation_factor)
                         elif fn_id == 3 and hue_factor is not None:
                             f = F.adjust_hue(f, hue_factor)
+                # apply trans_aug on 'color_aug'
+                
                 inputs[(n + "_aug", im, i)] = self.to_tensor(f)
 
     def __len__(self):
@@ -180,6 +203,10 @@ class MonoDataset(data.Dataset):
 
         do_color_aug = self.is_train and random.random() > 0.5
         do_flip = self.is_train and random.random() > 0.5
+        # extend tran only
+        do_trans_aug = self.is_train and random.random() > 0.5
+        do_trans_aug = False
+        # do_trans_aug = True
 
         line = self.filenames[index].split()
         folder = line[0]
@@ -213,7 +240,7 @@ class MonoDataset(data.Dataset):
             inputs[("K", scale)] = torch.from_numpy(K)
             inputs[("inv_K", scale)] = torch.from_numpy(inv_K)
 
-        self.preprocess(inputs, do_color_aug)
+        self.preprocess(inputs, do_color_aug, do_trans_aug)
         for i in self.frame_idxs:
             del inputs[("color", i, -1)]
             del inputs[("color_aug", i, -1)]

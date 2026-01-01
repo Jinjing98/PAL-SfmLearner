@@ -255,15 +255,15 @@ if __name__ == "__main__":
     frame_ids = [0, -1, 1]
     split = "endovis"
     iterate_through_all_files = True
-    # iterate_through_all_files = False
+    iterate_through_all_files = False
     
     # Read validation filenames
     splits_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "splits")
     val_fpath = os.path.join(splits_dir, split, "val_files.txt")
     val_fpath = os.path.join(splits_dir, split, "d6_kf2.txt")
-    val_fpath = os.path.join(splits_dir, split, "d6_kf2.txt")
     val_fpath = os.path.join(splits_dir, split, "train_files.txt")
     val_fpath = os.path.join(splits_dir, split, "test_files.txt")
+    val_fpath = os.path.join(splits_dir, split, "d6_kf2.txt")
     
     if not os.path.exists(val_fpath):
         print("Error: Validation split file not found at {}".format(val_fpath))
@@ -345,6 +345,18 @@ if __name__ == "__main__":
 
                 else:
                     print("WARNING: ('K_per_frame', 0) not found in sample!")
+
+                # save the color and color_aug of frame_0, frame_1, frame_-1 in one cavas figure of three rows*2 iamges
+                from utils import img_gen
+                img_gen(
+                    merged_dict=sample,
+                    image_keys_row1=[("color", 0, 0), ("color_aug", 0, 0),("color", 0, 3), ("color_aug", 0, 3)],
+                    image_keys_row2=[("color", 1, 0), ("color_aug", 1, 0),("color", 1, 3), ("color_aug", 1, 3)],
+                    save_path='color_grid_{}.png'.format(i),
+                    sample_idx=i
+                )
+                print('saved color grid to color_grid_{}.png'.format(i))
+
             except Exception as e:
                 print("Error loading sample: {}".format(e))
                 import traceback
