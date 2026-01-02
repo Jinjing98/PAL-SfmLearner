@@ -95,6 +95,9 @@ CUDA_VISIBLE_DEVICES=0 python /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLear
 --exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_wMultiScaleD_KDacStyle \
 --exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_transDataAug03 \
 --exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_trnFrameidDelta5 \
+--exp_suffix full_endodacB_angleaxis_baseline_OFrawSup \
+--exp_suffix full_endodacB_angleaxis_baseline_OFdefaultRefinedColor \
+--of_supervised_with_which outputs_refined \
 --train_frame_ids 0 -5 5 \
 --exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_transDataAug03_extraautomasking \
 --exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_wMultiScaleD_seqInput \
@@ -125,6 +128,10 @@ CUDA_VISIBLE_DEVICES=0 python /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLear
 
 # explict OF supervision?
 # raw_disp; then skip scale in disp2depth
+
+#126028 full_endodacB_angleaxis_baseline_OFrawSup # to have comprehensive val loss logged.
+#126029 full_endodacB_angleaxis_baseline_OFdefaultRefinedColor # to show raw is better
+
 
 # trans based data augmentation
 # 125942(aug on color and color_aug) 125938 (wrongly only on color_aug) full_endodacB_angleaxis_baseline_OFrawSup_transDataAug03
@@ -181,6 +188,8 @@ CUDA_VISIBLE_DEVICES=0 python /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLear
 #125485 full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_wMultiScaleD
 # Baseline EndoDAC with OFrawSup
 #125452 125445 125433 full_endodacB_angleaxis_baseline_OFrawSup
+
+
 # adjust_net AF help?
 #125454 125447 125435 full_endodacB_angleaxis_baseline_OFrawSup_afAdjustNet
 # GT K help?

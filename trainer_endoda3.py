@@ -2097,9 +2097,14 @@ class Trainer:
         B, H, W = pix_coords.shape[:3]
         
         # Denormalize pix_coords: from [-1, 1] to [0, W-1] and [0, H-1] (pixel coordinates in source frame)
-        pix_coords_denorm = pix_coords.clone()
-        pix_coords_denorm[..., 0] = (pix_coords[..., 0] + 1.0) / 2.0 * (W - 1)  # x coordinate
-        pix_coords_denorm[..., 1] = (pix_coords[..., 1] + 1.0) / 2.0 * (H - 1)  # y coordinate
+        # Construct directly using differentiable operations to preserve gradients
+        # Avoid clone() + in-place assignment which breaks gradient flow
+        scale_x = (W - 1) / 2.0
+        scale_y = (H - 1) / 2.0
+        pix_coords_denorm = torch.stack([
+            (pix_coords[..., 0] + 1.0) * scale_x,  # x coordinate
+            (pix_coords[..., 1] + 1.0) * scale_y   # y coordinate
+        ], dim=-1)  # (B, H, W, 2)
         
         # Create grid of original pixel coordinates in target frame (frame 0)
         # These are the pixel locations before warping
@@ -2212,7 +2217,7 @@ class Trainer:
 
                 # Compute pose_flow for visual inspection
                 pose_flow_2d = self._compute_pose_flow(pix_coords)
-                outputs[("pose_flow_dbg", "high", frame_id, scale)] = pose_flow_2d.detach()
+                outputs[("pose_flow", "high", frame_id, scale)] = pose_flow_2d#.detach()
 
                 outputs[("color", frame_id, scale)] = F.grid_sample(
                     inputs[("color", frame_id, source_scale)],
@@ -2623,7 +2628,7 @@ class Trainer:
                     # add pose_flow
                     writer.add_image(
                         "pose_flow_{}_{}/{}".format(frame_id, s, j),
-                        vis_flow_func(outputs[("pose_flow_dbg", "high", frame_id, s)][j].data), self.step)
+                        vis_flow_func(outputs[("pose_flow", "high", frame_id, s)][j].data), self.step)
 
                     if s == 0:
                         writer.add_image(
