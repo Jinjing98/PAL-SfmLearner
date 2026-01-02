@@ -3,7 +3,50 @@ from __future__ import absolute_import, division, print_function
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torchvision.utils import flow_to_image
+import numpy as np
 
+# Flow visualization functions for tensorboard logging
+def flow_vis(flow_tensor):
+    """Convert flow tensor to image for tensorboard logging (original version)"""
+    img = flow_to_image(flow_tensor)    # returns (3,H,W) uint8
+    img = img.float() / 255.0
+    return img
+
+def flow_vis_robust(flow_tensor):
+    """Convert flow tensor to image for tensorboard logging (RAFT-style robust version)"""
+    # Robust flow normalization using quantiles to handle extreme values
+    # Similar to RAFT visualization approach
+    
+    # Convert to numpy for quantile computation
+    flow_np = flow_tensor.detach().cpu().numpy()  # (2, H, W)
+    flow_np = flow_np.transpose(1, 2, 0)  # (H, W, 2)
+    
+    # Use absolute values for quantile computation since flow can be positive/negative
+    # Get 95th percentile of absolute values as upper bound
+    upper_bound = np.quantile(np.abs(flow_np), 0.95)
+    
+    # Clamp flow to reasonable range [-upper_bound, +upper_bound]
+    flow_clamped = np.clip(flow_np, 
+                         a_min=-upper_bound, 
+                         a_max=upper_bound)
+
+    #clamp to avoid absurd values
+    threshold = 1000 #px
+    flow_clamped = np.clip(flow_clamped, a_min=-threshold, a_max=threshold)
+    
+    # Normalize to [-1, 1] range for flow_to_image
+    if upper_bound > 1e-6:  # Avoid division by zero
+        flow_normalized = flow_clamped / upper_bound
+    else:
+        flow_normalized = flow_clamped
+    
+    # Convert to image using torchvision
+    flow_tensor_normalized = torch.from_numpy(flow_normalized.transpose(2, 0, 1)).float()  # (2, H, W)
+    img = flow_to_image(flow_tensor_normalized)  # returns (3, H, W) uint8
+    img = img.float() / 255.0
+    
+    return img
 
 def get_corresponding_map(data):
     """

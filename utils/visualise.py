@@ -6,6 +6,7 @@ import matplotlib.cm as cm
 from PIL import Image, ImageDraw, ImageFont
 import torch
 import os
+from torchvision.utils import flow_to_image
 
 
 def visualize_disp(disp):
@@ -420,8 +421,30 @@ def _process_image_key(key, merged_dict, sample_idx, img_height):
     key_str = "_".join(str(k) for k in key) if isinstance(key, tuple) else str(key)
     key_lower = key_str.lower()
     
+    # Check if this is an optical flow tensor (2 channels, flow-related key)
+    # Flow tensors should be in (2, H, W) or (C, H, W) format where C=2
+    is_flow = False
+    if isinstance(img, torch.Tensor):
+        if len(img.shape) == 3 and img.shape[0] == 2:
+            # Check if key suggests it's a flow (position, pose_flow, flow, etc.)
+            flow_keywords = ["flow", "position"]
+            is_flow = any(kw in key_lower for kw in flow_keywords)
+    
     # Use appropriate visualization function
-    if "disp" in key_lower:
+    if is_flow:
+        # Optical flow visualization using flow_to_image
+        # img is (2, H, W) tensor
+        # flow_to_image expects (2, H, W) and returns (3, H, W) uint8
+        flow_img = flow_to_image(img)  # (3, H, W) uint8
+        # Convert to numpy and transpose to (H, W, 3)
+        vis_img = flow_img.cpu().numpy().transpose(1, 2, 0)  # (H, W, 3)
+        H, W = vis_img.shape[:2]
+        aspect_ratio = W / H
+        img_width = int(img_height * aspect_ratio)
+        vis_img = cv2.resize(vis_img, (img_width, img_height))
+        return vis_img, key_str
+        
+    elif "disp" in key_lower:
         vis_img = visualize_disp(img)
         vis_img = np.transpose(vis_img, (1, 2, 0))
         H, W = vis_img.shape[:2]

@@ -38,6 +38,8 @@ from utils.warping import (
     Project3D,
     SpatialTransformer
 )
+from utils import flow_vis, flow_vis_robust
+
 from loss import get_smooth_loss, get_smooth_bright, ncc_loss, SSIM
 from networks.pose_decoder import PoseDecoder
 from torch.utils.data import DataLoader, ConcatDataset
@@ -2081,6 +2083,43 @@ class Trainer:
         else:
             raise ValueError(f"Unsupported rotation representation: {rot_representation}")
 
+    def _compute_pose_flow(self, pix_coords):
+        """Compute pose_flow for visual inspection: 2D flow vector (in pixel units) from target frame 0 to source frame_id.
+        
+        Args:
+            pix_coords: Normalized pixel coordinates [-1, 1] in (B, H, W, 2) format with [x, y] ordering.
+                       Represents where each pixel from frame 0 maps to in the source frame.
+        
+        Returns:
+            pose_flow_2d: Flow tensor in (B, 2, H, W) format with [x, y] flow components in pixel units.
+                         Flow = (mapped_location_in_source) - (original_location_in_target)
+        """
+        B, H, W = pix_coords.shape[:3]
+        
+        # Denormalize pix_coords: from [-1, 1] to [0, W-1] and [0, H-1] (pixel coordinates in source frame)
+        pix_coords_denorm = pix_coords.clone()
+        pix_coords_denorm[..., 0] = (pix_coords[..., 0] + 1.0) / 2.0 * (W - 1)  # x coordinate
+        pix_coords_denorm[..., 1] = (pix_coords[..., 1] + 1.0) / 2.0 * (H - 1)  # y coordinate
+        
+        # Create grid of original pixel coordinates in target frame (frame 0)
+        # These are the pixel locations before warping
+        y_coords, x_coords = torch.meshgrid(
+            torch.arange(H, device=pix_coords.device, dtype=pix_coords.dtype),
+            torch.arange(W, device=pix_coords.device, dtype=pix_coords.dtype),
+            indexing='ij'
+        )
+        original_coords = torch.stack([x_coords, y_coords], dim=-1)  # (H, W, 2) with [x, y]
+        original_coords = original_coords.unsqueeze(0).expand(B, -1, -1, -1)  # (B, H, W, 2)
+        
+        # Compute pose_flow: difference between mapped location and original location
+        # Flow = (where pixel maps to in source frame) - (where pixel originally was in target frame)
+        pose_flow = pix_coords_denorm - original_coords  # (B, H, W, 2) with [x, y] flow
+        
+        # Convert to (B, 2, H, W) format for visualization (matching optical flow format)
+        pose_flow_2d = pose_flow.permute(0, 3, 1, 2)  # (B, 2, H, W) with [x, y] flow
+        
+        return pose_flow_2d
+
     def generate_images_pred(self, inputs, outputs):
         """Generate the warped (reprojected) color images for a minibatch.
         Generated images are saved into the `outputs` dictionary.
@@ -2170,6 +2209,10 @@ class Trainer:
                     cam_points, cam_K_3x3, T_3x4)
 
                 outputs[("sample", frame_id, scale)] = pix_coords
+
+                # Compute pose_flow for visual inspection
+                pose_flow_2d = self._compute_pose_flow(pix_coords)
+                outputs[("pose_flow_dbg", "high", frame_id, scale)] = pose_flow_2d.detach()
 
                 outputs[("color", frame_id, scale)] = F.grid_sample(
                     inputs[("color", frame_id, source_scale)],
@@ -2536,8 +2579,6 @@ class Trainer:
     def log(self, mode, inputs, outputs, losses, metrics=None):
         """Write an event to the tensorboard events file
         """
-        # Use current_frame_ids which is already set correctly by run_epoch() or val()
-        frame_ids = self.current_frame_ids
         
         writer = self.writers[mode]
         for l, v in losses.items():
@@ -2573,6 +2614,17 @@ class Trainer:
                     writer.add_image(
                         "refined_{}_{}/{}".format(frame_id, s, j),
                         outputs[("refined", s, frame_id)][j].data, self.step)
+
+                    # add optic flow
+                    vis_flow_func = flow_vis_robust
+                    writer.add_image(
+                        "optic_flow_{}_{}/{}".format(frame_id, s, j),
+                        vis_flow_func(outputs[("position", "high", s, frame_id)][j].data), self.step)
+                    # add pose_flow
+                    writer.add_image(
+                        "pose_flow_{}_{}/{}".format(frame_id, s, j),
+                        vis_flow_func(outputs[("pose_flow_dbg", "high", frame_id, s)][j].data), self.step)
+
                     if s == 0:
                         writer.add_image(
                             "occu_mask_backward_{}_{}/{}".format(frame_id, s, j),

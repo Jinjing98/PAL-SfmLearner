@@ -38,3 +38,5 @@ from .visualise import (
     img_gen
 )
 from .load_models import load_pretrained_weights
+
+from .utils_optic_flow import flow_vis, flow_vis_robust

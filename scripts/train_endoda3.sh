@@ -96,23 +96,24 @@ CUDA_VISIBLE_DEVICES=0 python /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLear
 --exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_transDataAug03 \
 --exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_trnFrameidDelta5 \
 --train_frame_ids 0 -5 5 \
-# --exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_transDataAug03_extraautomasking \
-# --exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_wMultiScaleD_seqInput \
-# --of_samples \
-# --of_samples_num 16 \
-# --of_samples_num 8 \
-# --save_frequency 1000 \
-# --log_frequency 1 \
-# --num_epochs 20 \
-# --train_data_file test_files.txt \
-# --train_data_file test_files_sequence1_val.txt \
-# --train_data_file train_files.txt \
-# --val_data_file test_files_sequence1_val.txt \
-# --val_data_file test_files_sequence2_val.txt test_files_sequence1_val.txt test_files.txt \
-# --val_data_file test_files.txt \
-# --log_dir /mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm/endodac_dbg \
-# --train_frame_ids 0 -5 5 \
-# # # # --batch_size 2 \
+--exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_transDataAug03_extraautomasking \
+--exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_wMultiScaleD_seqInput \
+--of_samples \
+--of_samples_num 16 \
+--of_samples_num 8 \
+--save_frequency 1000 \
+--log_frequency 1 \
+--num_epochs 20 \
+--train_data_file test_files.txt \
+--train_data_file test_files_sequence1_val.txt \
+--train_data_file train_files.txt \
+--val_data_file test_files_sequence1_val.txt \
+--val_data_file test_files_sequence2_val.txt test_files_sequence1_val.txt test_files.txt \
+--val_data_file test_files.txt \
+--log_dir /mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm/endodac_dbg \
+--train_frame_ids 0 -5 5 \
+--of_model_type raft \
+# # # --batch_size 2 \
 
 # # --use_perframe_gt_K \
 # # --learn_intrinsics \
