@@ -236,7 +236,12 @@ class MonodepthOptions:
         self.parser.add_argument("--frame_ids",
                                  nargs="+",
                                  type=int,
-                                 help="frames to load",
+                                 help="frames to load (used for val/test)",
+                                 default=[0, -1, 1])
+        self.parser.add_argument("--train_frame_ids",
+                                 nargs="+",
+                                 type=int,
+                                 help="frames to load for training (defaults to frame_ids if not set)",
                                  default=[0, -1, 1])
         
         # Pose Net setting: we use the setting here if we use external pose net rather the sub_module cam_dec for endoDA3

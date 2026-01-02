@@ -878,20 +878,26 @@ class Trainer:
         
         img_ext = '.png'
         
+        # Store train_frame_ids and val_frame_ids as instance variables
+        self.train_frame_ids = self.opt.train_frame_ids
+        self.val_frame_ids = self.opt.frame_ids  # Keep original for validation
+        # Current frame_ids (set contextually during training/validation)
+        self.current_frame_ids = self.train_frame_ids  # Default to training
+        
         # Create datasets using shared utility function
         train_dataset = create_dataset_from_file_or_list(
             train_file, splits_dir, self.dataset, self.opt.data_path, 
-            self.opt.height, self.opt.width, self.opt.frame_ids, 4, 
+            self.opt.height, self.opt.width, self.train_frame_ids, 4,
             is_train=True, img_ext=img_ext, opt=self.opt, mode='train'
         )
         val_dataset = create_dataset_from_file_or_list(
             val_file, splits_dir, self.dataset, self.opt.data_path,
-            self.opt.height, self.opt.width, self.opt.frame_ids, 4,
+            self.opt.height, self.opt.width, self.val_frame_ids, 4,
             is_train=False, img_ext=img_ext, opt=self.opt, mode='val'
         )
         test_dataset = create_dataset_from_file_or_list(
             test_file, splits_dir, self.dataset, self.opt.data_path,
-            self.opt.height, self.opt.width, self.opt.frame_ids, 4,
+            self.opt.height, self.opt.width, self.val_frame_ids, 4,
             is_train=False, img_ext=img_ext, opt=self.opt, mode='test'
         )
         
@@ -903,6 +909,13 @@ class Trainer:
         
 
         def collate_fn_flexible(batch):
+            # Filter out None samples (skipped due to missing files)
+            batch = [b for b in batch if b is not None]
+            if len(batch) == 0:
+                # Return empty batch if all samples were skipped
+                print(f"All samples were skipped in the batch")
+                return {}
+            
             key_sets = [set(b.keys()) for b in batch]
             required_keys = set.intersection(*key_sets)  # present in all
             all_keys = set.union(*key_sets)
@@ -916,7 +929,8 @@ class Trainer:
 
         self.train_loader = DataLoader(
             train_dataset, self.opt.batch_size, shuffle,
-            num_workers=self.opt.num_workers, pin_memory=True, drop_last=True)
+            num_workers=self.opt.num_workers, pin_memory=True, drop_last=True,
+            collate_fn=collate_fn_flexible)
         self.val_loader = DataLoader(
             val_dataset, self.opt.batch_size, False,
             num_workers=1, pin_memory=True, drop_last=True, collate_fn=collate_fn_flexible)
@@ -1520,10 +1534,14 @@ class Trainer:
     def run_epoch(self):
         """Run a single epoch of training and validation
         """
-
+        self.current_frame_ids = self.train_frame_ids  # Set context for training
+        
         print("Training")
 
         for batch_idx, inputs in enumerate(self.train_loader):
+            # Skip empty batches (all samples were filtered out due to missing files)
+            if not inputs:
+                continue
 
             before_op_time = time.time()
 
@@ -1556,7 +1574,7 @@ class Trainer:
                 
                 # log pose metrics during trn
                 if getattr(self.opt, 'compute_pose_metrics', False):
-                    pose_metrics = compute_pose_metrics(inputs, outputs, self.opt.frame_ids)
+                    pose_metrics = compute_pose_metrics(inputs, outputs, self.current_frame_ids)
                     if pose_metrics:
                         metrics.update(pose_metrics)
 
@@ -1651,12 +1669,13 @@ class Trainer:
 
     def predict_poses_0(self, inputs):
         """Predict poses between input frames for monocular sequences.
+        Uses self.current_frame_ids which is set contextually during training/validation.
         """
         outputs = {}
         if self.num_pose_frames == 2:
-            pose_feats = {f_i: inputs["color_aug", f_i, 0] for f_i in self.opt.frame_ids}
+            pose_feats = {f_i: inputs["color_aug", f_i, 0] for f_i in self.current_frame_ids}
 
-            for f_i in self.opt.frame_ids[1:]:
+            for f_i in self.current_frame_ids[1:]:
 
                 if f_i != "s":
 
@@ -1728,7 +1747,6 @@ class Trainer:
         return outputs
 
     def compute_losses_0(self, inputs, outputs):
-
         losses = {}
         total_loss = 0
 
@@ -1740,7 +1758,7 @@ class Trainer:
 
             color = inputs[("color", 0, scale)]
 
-            for frame_id in self.opt.frame_ids[1:]:
+            for frame_id in self.current_frame_ids[1:]:
                 occu_mask_backward = outputs[("occu_mask_backward", 0, frame_id)].detach()
                 loss_smooth_registration += (get_smooth_loss(outputs[("position", scale, frame_id)], color))
                 
@@ -1778,7 +1796,7 @@ class Trainer:
         if self.enable_seq_inputs:
             # Stack all frames in order specified by frame_ids
             # frame_ids should start with 0 (validated in __init__)
-            frames_list = [inputs["color_aug", f_i, 0] for f_i in self.opt.frame_ids]
+            frames_list = [inputs["color_aug", f_i, 0] for f_i in self.current_frame_ids]
             frames_input = torch.stack(frames_list, dim=1)  # (B, S, 3, H, W) where S=len(frame_ids)
             
             # Call the underlying model directly ONCE to get raw output (for caching)
@@ -1879,9 +1897,9 @@ class Trainer:
         """
         outputs = {}
         if self.num_pose_frames == 2:
-            pose_feats = {f_i: inputs["color_aug", f_i, 0] for f_i in self.opt.frame_ids}
+            pose_feats = {f_i: inputs["color_aug", f_i, 0] for f_i in self.current_frame_ids}
                 
-            for f_i in self.opt.frame_ids[1:]:
+            for f_i in self.current_frame_ids[1:]:
 
                 if f_i != "s":
                     
@@ -1946,8 +1964,8 @@ class Trainer:
                     if need_da3_output:
                         if self.enable_seq_inputs and cached_raw_model_output is not None:
                             # Extract pose/K from cached raw model output without re-calling the model
-                            if f_i in self.opt.frame_ids:
-                                index_in_spatial_S = self.opt.frame_ids.index(f_i)
+                            if f_i in self.current_frame_ids:
+                                index_in_spatial_S = self.current_frame_ids.index(f_i)
                                 B = pose_feats[0].shape[0]
                                 H, W = pose_feats[0].shape[2], pose_feats[0].shape[3]
                                 # Extract pose directly from cached raw model output
@@ -1970,7 +1988,7 @@ class Trainer:
                                             depth_output_dict[('K', 0)] = cam_K
                                             depth_output_dict[('inv_K', 0)] = inv_K
                             else:
-                                raise ValueError(f"frame_id {f_i} not found in frame_ids {self.opt.frame_ids}")
+                                raise ValueError(f"frame_id {f_i} not found in frame_ids {self.current_frame_ids}")
                         else:
                             # endoda3_pair_posenet
                             # Original behavior: call depth model per frame pair (when enable_seq_inputs is False)
@@ -2103,7 +2121,7 @@ class Trainer:
                 cam_K, inv_K = self.get_K_invK_perframe(inputs, outputs, source_scale, depth.shape[0], frame_id=0)# obtain the K for target frame f0
             else:
                 cam_K, inv_K = self.get_K_invK(inputs, outputs, source_scale, depth.shape[0])
-            for i, frame_id in enumerate(self.opt.frame_ids[1:]):
+            for i, frame_id in enumerate(self.current_frame_ids[1:]):
 
                 if frame_id == "s":
                     T = inputs["stereo_T"]
@@ -2216,7 +2234,6 @@ class Trainer:
         return reprojection_loss
 
     def compute_losses(self, inputs, outputs):
-
         losses = {}
         total_loss = 0
 
@@ -2230,7 +2247,7 @@ class Trainer:
             disp = outputs[("disp", scale)]
             color = inputs[("color", 0, scale)]
 
-            for frame_id in self.opt.frame_ids[1:]:
+            for frame_id in self.current_frame_ids[1:]:
                 
                 occu_mask_backward = outputs[("occu_mask_backward", 0, frame_id)].detach()
 
@@ -2291,6 +2308,7 @@ class Trainer:
         Returns:
             Dictionary of validation metrics (or None if no metrics computed)
         """
+        self.current_frame_ids = self.val_frame_ids  # Set context for validation
         self.set_eval()
         if getattr(self.opt, 'val_full_eval', False):
             report_quantile_pose_err = True # used for compute quantile
@@ -2333,14 +2351,14 @@ class Trainer:
 
                     if getattr(self.opt, 'compute_pose_metrics', False):
                         if report_quantile_pose_err:
-                            pose_metrics, trans_ang_err_metrics_raw, rot_err_metrics_raw = compute_pose_metrics(inputs, outputs, self.opt.frame_ids, ret_raw=True)
+                            pose_metrics, trans_ang_err_metrics_raw, rot_err_metrics_raw = compute_pose_metrics(inputs, outputs, self.current_frame_ids, ret_raw=True)
                         else:
-                            pose_metrics = compute_pose_metrics(inputs, outputs, self.opt.frame_ids)
-                        
+                            pose_metrics = compute_pose_metrics(inputs, outputs, self.current_frame_ids)
+                    
                         if pose_metrics:
                             _accum(metrics_accum, pose_metrics)
                             self.pose_metrics_num_batches += 1
-                        
+                    
                         if report_quantile_pose_err:
                             _accum_raw(metrics_trans_ang_err_raw_accum, trans_ang_err_metrics_raw)
                             _accum_raw(metrics_rot_err_raw_accum, rot_err_metrics_raw)
@@ -2388,7 +2406,7 @@ class Trainer:
                         self.depth_metrics_num_batches = 1
                 
                 if getattr(self.opt, 'compute_pose_metrics', False):
-                    pose_metrics = compute_pose_metrics(inputs, outputs, self.opt.frame_ids)
+                    pose_metrics = compute_pose_metrics(inputs, outputs, self.current_frame_ids)
                     if pose_metrics:
                         metrics.update(pose_metrics)
                         self.pose_metrics_num_batches = 1
@@ -2408,7 +2426,7 @@ class Trainer:
         # Handle multi-frame input mode (enable_seq_inputs)
         if self.enable_seq_inputs:
             # Stack all frames in order specified by frame_ids
-            frames_list = [inputs["color_aug", f_i, 0] for f_i in self.opt.frame_ids]
+            frames_list = [inputs["color_aug", f_i, 0] for f_i in self.current_frame_ids]
             frames_input = torch.stack(frames_list, dim=1)  # (B, S, 3, H, W) where S=len(frame_ids)
             
             # Call the underlying model directly ONCE to get raw output (for caching)
@@ -2468,7 +2486,7 @@ class Trainer:
 
             target = inputs[("color", 0, 0)]
 
-            for frame_id in self.opt.frame_ids[1:]:
+            for frame_id in self.current_frame_ids[1:]:
                 registration_losses.append(
                     ncc_loss(outputs[("registration", scale, frame_id)].mean(1, True), target.mean(1, True)))
                 
@@ -2518,6 +2536,9 @@ class Trainer:
     def log(self, mode, inputs, outputs, losses, metrics=None):
         """Write an event to the tensorboard events file
         """
+        # Use current_frame_ids which is already set correctly by run_epoch() or val()
+        frame_ids = self.current_frame_ids
+        
         writer = self.writers[mode]
         for l, v in losses.items():
             writer.add_scalar("{}".format(l), v, self.step)
@@ -2541,7 +2562,7 @@ class Trainer:
 
         for j in range(min(4, self.opt.batch_size)):  # write a maxmimum of four images
             for s in self.opt.scales:
-                for frame_id in self.opt.frame_ids[1:]:
+                for frame_id in self.current_frame_ids[1:]:
 
                     writer.add_image(
                         "brightness_{}_{}/{}".format(frame_id, s, j),

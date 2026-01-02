@@ -1,6 +1,7 @@
 from __future__ import absolute_import, division, print_function
 
 import os
+import random
 import numpy as np
 import PIL.Image as pil
 import cv2
@@ -179,13 +180,29 @@ class SCAREDRAWDataset(SCAREDDataset):
 
     def __getitem__(self, index):
         """Override to add GT depth loading from gt_depths_val.npz for validation"""
-        # Call parent __getitem__ to get all standard inputs
-        inputs = super(SCAREDRAWDataset, self).__getitem__(index)
+        # Retry logic: if FileNotFoundError, try different random index
+        max_retries = min(50, len(self.filenames))
+        tried_indices = {index}
+        
+        for attempt in range(max_retries):
+            try:
+                inputs = super(SCAREDRAWDataset, self).__getitem__(index)
+                break  # Success, exit retry loop
+            except FileNotFoundError:
+                if len(tried_indices) >= len(self.filenames):
+                    print(f"All {len(self.filenames)} indices failed. Returning None.")
+                    return None
+                # Pick random untried index
+                new_index = random.randrange(len(self.filenames))
+                while new_index in tried_indices:
+                    new_index = random.randrange(len(self.filenames))   
+                tried_indices.add(new_index)
+                print(f"FileNotFoundError {index}: {self.filenames[index]}. Do retry with index {new_index}.")
+                index = new_index
         
         # Load GT depth from npz file if available (for validation only)
         if self.gt_depths_val is not None and index < len(self.gt_depths_val):
-            gt_depth = self.gt_depths_val[index]  # (H_gt, W_gt)
-            # Convert to tensor and add channel dimension: (1, H_gt, W_gt)
+            gt_depth = self.gt_depths_val[index]
             inputs[("depth_gt", 0, 0)] = torch.from_numpy(np.expand_dims(gt_depth, 0).astype(np.float32))
 
         # Parse folder from filename
@@ -253,9 +270,10 @@ if __name__ == "__main__":
     height = 256
     width = 320
     frame_ids = [0, -1, 1]
+    frame_ids = [0, -500, 500]
     split = "endovis"
     iterate_through_all_files = True
-    iterate_through_all_files = False
+    # iterate_through_all_files = False
     
     # Read validation filenames
     splits_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "splits")

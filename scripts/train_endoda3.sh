@@ -94,10 +94,10 @@ CUDA_VISIBLE_DEVICES=0 python /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLear
 --exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_wMultiScaleD_gtK \
 --exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_wMultiScaleD_KDacStyle \
 --exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_transDataAug03 \
---exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_transDataAug03_extraautomasking \
-# --learn_intrinsics \
+--exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_trnFrameidDelta5 \
+--train_frame_ids 0 -5 5 \
+# --exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_transDataAug03_extraautomasking \
 # --exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_wMultiScaleD_seqInput \
-# --enable_seq_inputs \
 # --of_samples \
 # --of_samples_num 16 \
 # --of_samples_num 8 \
@@ -111,7 +111,8 @@ CUDA_VISIBLE_DEVICES=0 python /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLear
 # --val_data_file test_files_sequence2_val.txt test_files_sequence1_val.txt test_files.txt \
 # --val_data_file test_files.txt \
 # --log_dir /mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm/endodac_dbg \
-# # # --batch_size 2 \
+# --train_frame_ids 0 -5 5 \
+# # # # --batch_size 2 \
 
 # # --use_perframe_gt_K \
 # # --learn_intrinsics \
@@ -128,6 +129,8 @@ CUDA_VISIBLE_DEVICES=0 python /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLear
 # 125942(aug on color and color_aug) 125938 (wrongly only on color_aug) full_endodacB_angleaxis_baseline_OFrawSup_transDataAug03
 # auto masking furhter helps 
 # 125943 full_endodacB_angleaxis_baseline_OFrawSup_transDataAug03_extraautomasking
+# trn data trans_rot_aug
+# 126003 full_endodacB_angleaxis_baseline_OFrawSup_trnFrameidDelta5
 
 # can we have more consistent depth via seq input?
 # 125822 full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_wMultiScaleD_seqInput
