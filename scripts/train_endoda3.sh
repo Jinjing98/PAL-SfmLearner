@@ -94,6 +94,7 @@ CUDA_VISIBLE_DEVICES=0 python /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLear
 --exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_wMultiScaleD_gtK \
 --exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_wMultiScaleD_KDacStyle \
 --exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_transDataAug03 \
+--exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_transDataAug03_extraautomasking \
 # --learn_intrinsics \
 # --exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_wMultiScaleD_seqInput \
 # --enable_seq_inputs \
@@ -124,7 +125,9 @@ CUDA_VISIBLE_DEVICES=0 python /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLear
 # raw_disp; then skip scale in disp2depth
 
 # trans based data augmentation
-# 125938 full_endodacB_angleaxis_baseline_OFrawSup_transDataAug03
+# 125942(aug on color and color_aug) 125938 (wrongly only on color_aug) full_endodacB_angleaxis_baseline_OFrawSup_transDataAug03
+# auto masking furhter helps 
+# 125943 full_endodacB_angleaxis_baseline_OFrawSup_transDataAug03_extraautomasking
 
 # can we have more consistent depth via seq input?
 # 125822 full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_wMultiScaleD_seqInput

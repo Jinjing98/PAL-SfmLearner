@@ -25,7 +25,7 @@ from third_party.EndoDAC.models.decoders import IntrinsicsHead, PoseCNN
 from networks.raft import RAFT
 from networks.adjust_net import adjust_net
 
-from utils.utils_optic_flow import get_occu_mask_backward, get_occu_mask_bidirection, optical_flow
+from utils.utils_optic_flow import get_occu_mask_backward, get_occu_mask_bidirection, optical_flow, get_corresponding_map
 from utils.metrics import compute_depth_metrics, compute_pose_metrics, compute_depth_errors
 from utils.util import set_seed, readlines, normalize_image, sec_to_hm_str, disp_to_depth_v2, create_dataset_from_file_or_list
 from utils.warping import (
@@ -2162,6 +2162,45 @@ class Trainer:
                 # Reuse normalized K and T for position_depth (same shape requirement)
                 outputs[("position_depth", scale, frame_id)] = self.position_depth[source_scale](
                         cam_points, cam_K_3x3, T_3x4)
+                
+                # #/////////////IID style masking: compute backward warp and occlusion mask/////////////
+                # # Compute inverse transformation: from source (frame_id) to target (0)
+                # # T is (B, 3, 4) representing transformation from target to source
+                # # T_inv: from source to target
+                # T_4x4 = torch.eye(4, device=T_3x4.device, dtype=T_3x4.dtype).unsqueeze(0).repeat(T_3x4.shape[0], 1, 1)
+                # T_4x4[:, :3, :] = T_3x4
+                # T_inv_4x4 = torch.inverse(T_4x4)
+                # T_inv_3x4 = T_inv_4x4[:, :3, :]
+                
+                # # Backproject depth from target frame to 3D points (same as forward)
+                # # Project 3D points to source frame using inverse transformation
+                # # This gives us where each target pixel maps to in source frame
+                # pix_coords_backward = self.project_3d[source_scale](
+                #     cam_points, cam_K_3x3, T_inv_3x4)
+                
+                # # Convert to optical flow format: need unnormalized pixel coordinates in source frame
+                # # pix_coords_backward is normalized [-1, 1] in (B, H, W, 2) format
+                # B, H, W = pix_coords_backward.shape[:3]
+                # # Denormalize: from [-1, 1] to [0, W-1] and [0, H-1] (in source frame coordinates)
+                # pix_coords_backward_denorm = pix_coords_backward.clone()
+                # pix_coords_backward_denorm[..., 0] = (pix_coords_backward[..., 0] + 1.0) / 2.0 * (W - 1)
+                # pix_coords_backward_denorm[..., 1] = (pix_coords_backward[..., 1] + 1.0) / 2.0 * (H - 1)
+                
+                # # Convert to (B, 2, H, W) format with [y, x] ordering (matching get_occu_mask_backward)
+                # pix_coords_backward_2d = pix_coords_backward_denorm.permute(0, 3, 1, 2)  # (B, 2, H, W)
+                # pix_coords_backward_2d = pix_coords_backward_2d[:, [1, 0], ...]  # swap to [y, x] format
+                
+                # # Compute corresponding map: which pixels in source frame receive contributions from target pixels
+                # # This indicates visibility (high correspondence = visible, low = occluded)
+                # corr_map = get_corresponding_map(pix_coords_backward_2d)
+                
+                # # Occlusion mask: pixels with correspondence > threshold are valid (not occluded)
+                # # This mask indicates which target pixels are visible when warped to source
+                # occ_threshold = 0.95
+                # occu_mask_backward = (corr_map > occ_threshold).float()
+                # outputs[("occu_mask_backward", scale, frame_id)] = occu_mask_backward
+                # outputs[("occu_map_backward", scale, frame_id)] = corr_map
+                # #/////////////
 
     def compute_reprojection_loss(self, pred, target):
 
@@ -2194,7 +2233,29 @@ class Trainer:
             for frame_id in self.opt.frame_ids[1:]:
                 
                 occu_mask_backward = outputs[("occu_mask_backward", 0, frame_id)].detach()
+
+                #/////////////apply monov2 auto masking for losses/////////////
+                # reproj_err_pose = self.compute_reprojection_loss(
+                #     outputs[("color", frame_id, scale)].detach(),
+                #     inputs[("color", 0, 0)]
+                # )
+                # reproj_err_vanilla = self.compute_reprojection_loss(
+                #     inputs[("color", frame_id, 0)],
+                #     inputs[("color", 0, 0)]
+                # )
+                # monov2_automask = (reproj_err_pose < reproj_err_vanilla).float()
+                # occu_mask_backward = (((outputs[("occu_mask_backward", 0, frame_id)].detach() + monov2_automask).float() / 2.0) > 0.5).float()
                 
+                # # update for monitor occlu_vis
+                # outputs[("occu_mask_backward", scale, frame_id)] = occu_mask_backward
+                
+                #/////////////
+                
+
+                #/////////////IID style masking/////////////
+                # todo
+
+
                 # Get supervision target based on posedepth_supervised_with_which
                 posedepth_supervised_with = getattr(self.opt, 'posedepth_supervised_with_which', 'outputs_refined')
                 if posedepth_supervised_with == 'outputs_refined':
