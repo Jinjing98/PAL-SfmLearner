@@ -41,6 +41,7 @@ from utils.warping import (
 from utils import flow_vis, flow_vis_robust
 
 from loss import get_smooth_loss, get_smooth_bright, ncc_loss, SSIM
+from loss import compute_flow_berhu_loss
 from networks.pose_decoder import PoseDecoder
 from torch.utils.data import DataLoader, ConcatDataset
 from tensorboardX import SummaryWriter
@@ -2288,9 +2289,15 @@ class Trainer:
         for scale in self.opt.scales:
             
             loss = 0
+
             loss_reprojection = 0
+            loss_explict_geo = 0 #optic flow based
+            debug_flow_based_geo = True
+            # debug_flow_based_geo = False
+
             loss_transform = 0
             loss_cvt = 0
+
 
             disp = outputs[("disp", scale)]
             color = inputs[("color", 0, scale)]
@@ -2327,9 +2334,16 @@ class Trainer:
                     supervision_target = outputs[("refined", scale, frame_id)]
                 else:
                     raise ValueError(f"posedepth_supervised_with_which '{posedepth_supervised_with}' not supported. Only 'outputs_refined' is supported.")
-                
+
+                if debug_flow_based_geo:
+                    loss_explict_geo += compute_flow_berhu_loss(
+                        outputs[("pose_flow", "high", frame_id, scale)],
+                        outputs[("position", "high", scale, frame_id,)],
+                        occu_mask_backward
+                    )                
                 loss_reprojection += (
                     self.compute_reprojection_loss(outputs[("color", frame_id, scale)], supervision_target) * occu_mask_backward).sum() / occu_mask_backward.sum()  
+                
                 loss_transform += (
                     torch.abs(outputs[("refined", scale, frame_id)] - outputs[("registration", 0, frame_id)].detach()).mean(1, True) * occu_mask_backward).sum() / occu_mask_backward.sum()
                 loss_cvt += get_smooth_bright(
@@ -2339,7 +2353,16 @@ class Trainer:
             norm_disp = disp / (mean_disp + 1e-7)
             smooth_loss = get_smooth_loss(norm_disp, color)
 
-            loss += loss_reprojection / 2.0
+            # Log unweighted sub-losses (before applying weights)
+            losses["loss_reprojection/{}".format(scale)] = loss_reprojection / 2.0
+            losses["loss_explict_geo/{}".format(scale)] = loss_explict_geo / 2.0
+            losses["loss_transform/{}".format(scale)] = loss_transform / 2.0
+            losses["loss_cvt/{}".format(scale)] = loss_cvt / 2.0
+            losses["loss_smooth/{}".format(scale)] = smooth_loss / (2 ** scale)
+
+            # Apply weights and add to total loss
+            loss += self.opt.photo_reprojection * (loss_reprojection / 2.0)
+            loss += self.opt.explicit_flow_geometry * (loss_explict_geo / 2.0)
             loss += self.opt.transform_constraint * (loss_transform / 2.0)
             loss += self.opt.transform_smoothness * (loss_cvt / 2.0) 
             loss += self.opt.disparity_smoothness * smooth_loss / (2 ** scale)

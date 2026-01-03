@@ -69,6 +69,40 @@ def get_smooth_bright(transform, target, pred, occu_mask):
     
     return (grad_transform_x.sum() / mask_x.sum() + grad_transform_y.sum() / mask_y.sum())
 
+def compute_flow_berhu_loss(pred,        # rigid flow: [B, 2, H, W]
+                            target,      # optical flow: [B, 2, H, W]
+                            occu_mask,   # [B, 1, H, W] or [B, H, W]
+                            c_ratio=0.2,
+                            eps=1e-7):
+    """
+    BerHu loss for optical flow with occlusion mask.
+    """
+
+    if occu_mask.dim() == 3:
+        occu_mask = occu_mask.unsqueeze(1)  # [B,1,H,W]
+
+    # flow residual
+    residue = pred - target                      # [B,2,H,W]
+    residue_norm = torch.norm(residue, dim=1, keepdim=True)  # [B,1,H,W]
+
+    # apply occlusion mask
+    residue_norm = residue_norm * occu_mask
+
+    # berHu threshold (detach!)
+    max_res = residue_norm.max()
+    c = c_ratio * max_res.detach() + eps
+
+    # berHu formulation
+    l1_part = residue_norm
+    l2_part = (residue_norm ** 2 + c ** 2) / (2.0 * c)
+
+    berhu_loss = torch.where(residue_norm <= c, l1_part, l2_part)
+
+    # normalize by valid pixels (same spirit as your smooth loss)
+    loss = berhu_loss.sum() / (occu_mask.sum() + eps)
+
+    return loss
+
 
 def compute_local_sums(I, J, filt, stride, padding, win):
 

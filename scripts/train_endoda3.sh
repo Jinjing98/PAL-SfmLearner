@@ -116,12 +116,15 @@ CUDA_VISIBLE_DEVICES=0 python /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLear
 --log_dir /mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm/endodac_dbg \
 --train_frame_ids 0 -5 5 \
 --of_model_type raft \
+--photo_reprojection 0.0 \
+--explicit_flow_geometry 1.0 \
 # # # --batch_size 2 \
 
 # # --use_perframe_gt_K \
 # # --learn_intrinsics \
 # # --enable_seq_inputs \
-
+# --photo_reprojection 0.0 \
+# --explicit_flow_geometry 1.0 \
 
 # setup for endodac net
 # --depth_model_type endodac --of_supervised_with_which outputs_refined --pose_model_type separate_resnet --da3_depth_regression_target disp --k_model_type mlp_with_pn_bottleneck_ipt --warm_up_step 5000 --pretrained_path /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/weights/depthanything \

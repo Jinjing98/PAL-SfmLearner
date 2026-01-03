@@ -187,6 +187,14 @@ class MonodepthOptions:
                                  type=float,
                                  help="transform smoothness weight",
                                  default=0.01)
+        self.parser.add_argument("--photo_reprojection",
+                                 type=float,
+                                 help="explicit flow-based geometry loss weight (pose_flow vs optical flow)",
+                                 default=1.0)
+        self.parser.add_argument("--explicit_flow_geometry",
+                                 type=float,
+                                 help="explicit flow-based geometry loss weight (pose_flow vs optical flow)",
+                                 default=0.0)
         self.parser.add_argument("--of_supervised_with_which",
                                  type=str,
                                  help="what to use for optical flow supervision: 'outputs_refined' (outputs['refined']) or 'inputs_color'",
