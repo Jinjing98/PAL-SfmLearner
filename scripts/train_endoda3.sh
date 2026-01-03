@@ -64,7 +64,6 @@ CUDA_VISIBLE_DEVICES=0 python /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLear
 --of_model_type separate_resnet \
 --raft_trainable_modules convnormrelu layer1 layer2_0 \
 --raft_trainable_modules all \
---use_raft_multi_iters \
 --endoda3_model_config /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/networks/configs/endo-da3-all-wowrapper.yaml \
 --da3_depth_regression_target depth2disp_v2 --depth_model_type depthanything3 --pretrained_path depth-anything/da3-base \
 --da3_depth_regression_target disp --depth_model_type depthanything3 --pretrained_path depth-anything/da3-base \
@@ -97,40 +96,64 @@ CUDA_VISIBLE_DEVICES=0 python /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLear
 --exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_trnFrameidDelta5 \
 --exp_suffix full_endodacB_angleaxis_baseline_OFrawSup \
 --exp_suffix full_endodacB_angleaxis_baseline_OFdefaultRefinedColor \
---of_supervised_with_which outputs_refined \
---train_frame_ids 0 -5 5 \
---exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_transDataAug03_extraautomasking \
---exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_wMultiScaleD_seqInput \
---of_samples \
---of_samples_num 16 \
---of_samples_num 8 \
---save_frequency 1000 \
---log_frequency 1 \
---num_epochs 20 \
---train_data_file test_files.txt \
---train_data_file test_files_sequence1_val.txt \
---train_data_file train_files.txt \
---val_data_file test_files_sequence1_val.txt \
---val_data_file test_files_sequence2_val.txt test_files_sequence1_val.txt test_files.txt \
---val_data_file test_files.txt \
---log_dir /mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm/endodac_dbg \
---train_frame_ids 0 -5 5 \
+--exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_ofRaftLastIterOnly_freezeOF_explicitFlowGeometryOnly_W1 \
+--exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_ofRaftLastIterOnly_freezeOF_explicitFlowGeometry_W1_reporj_W1 \
+--exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_ofRaftLastIterOnly_smoothLowRes \
+--exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_ofRaftLastIterOnly_detachLowRes \
+--exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_ofRaftLastIterOnly_smoothLowRes_explicitFlowGeometryOnly_W1 \
 --of_model_type raft \
 --photo_reprojection 0.0 \
 --explicit_flow_geometry 1.0 \
-# # # --batch_size 2 \
+# --train_frame_ids 0 -3 3 \
+# --exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_trnFrameidDelta3 \
+# --of_supervised_with_which outputs_refined \
+# --train_frame_ids 0 -5 5 \
+# --exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_transDataAug03_extraautomasking \
+# --exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_wMultiScaleD_seqInput \
+# --of_samples \
+# --of_samples_num 16 \
+# --of_samples_num 8 \
+# --save_frequency 1000 \
+# --log_frequency 1 \
+# --num_epochs 20 \
+# --train_data_file test_files.txt \
+# --train_data_file test_files_sequence1_val.txt \
+# --train_data_file train_files.txt \
+# --val_data_file test_files_sequence1_val.txt \
+# --val_data_file test_files_sequence2_val.txt test_files_sequence1_val.txt test_files.txt \
+# --val_data_file test_files.txt \
+# --log_dir /mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm/endodac_dbg \
+# --train_frame_ids 0 -5 5 \
+# --of_model_type raft \
+# --photo_reprojection 0.0 \
+# --explicit_flow_geometry 1.0 \
+# # # # --batch_size 2 \
 
 # # --use_perframe_gt_K \
 # # --learn_intrinsics \
 # # --enable_seq_inputs \
 # --photo_reprojection 0.0 \
 # --explicit_flow_geometry 1.0 \
+# --use_raft_multi_iters \
+
+
 
 # setup for endodac net
 # --depth_model_type endodac --of_supervised_with_which outputs_refined --pose_model_type separate_resnet --da3_depth_regression_target disp --k_model_type mlp_with_pn_bottleneck_ipt --warm_up_step 5000 --pretrained_path /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/weights/depthanything \
 
 # explict OF supervision?
 # raw_disp; then skip scale in disp2depth
+
+# Tuning_RAFTOF_best_setting + Flow_only_loss
+# 126048 full_endodacB_angleaxis_baseline_OFrawSup_ofRaftLastIterOnly_smoothLowRes_explicitFlowGeometryOnly_W1
+
+# tune raft: check performance espeically on low_res
+# 126040 full_endodacB_angleaxis_baseline_OFrawSup_ofRaftLastIterOnly_smoothLowRes
+# 126041 full_endodacB_angleaxis_baseline_OFrawSup_ofRaftLastIterOnly_detachLowRes
+
+# flow_only suerpvision rather photo reprojection?
+# 126037 full_endodacB_angleaxis_baseline_OFrawSup_ofRaftLastIterOnly_freezeOF_explicitFlowGeometryOnly_W1
+# 126038 full_endodacB_angleaxis_baseline_OFrawSup_ofRaftLastIterOnly_freezeOF_explicitFlowGeometry_W1_reporj_W1
 
 #126028 full_endodacB_angleaxis_baseline_OFrawSup # to have comprehensive val loss logged.
 #126029 full_endodacB_angleaxis_baseline_OFdefaultRefinedColor # to show raw is better
@@ -142,6 +165,7 @@ CUDA_VISIBLE_DEVICES=0 python /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLear
 # 125943 full_endodacB_angleaxis_baseline_OFrawSup_transDataAug03_extraautomasking
 # trn data trans_rot_aug
 # 126003 full_endodacB_angleaxis_baseline_OFrawSup_trnFrameidDelta5
+# 126039 full_endodacB_angleaxis_baseline_OFrawSup_trnFrameidDelta3
 
 # can we have more consistent depth via seq input?
 # 125822 full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_wMultiScaleD_seqInput

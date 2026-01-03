@@ -2,6 +2,7 @@ from __future__ import absolute_import, division, print_function
 
 import os
 import argparse
+from ssl import Options
 import time
 
 file_dir = os.path.dirname(__file__)  # the directory that options.py resides in
@@ -119,6 +120,9 @@ class MonodepthOptions:
                                  type=int,
                                  help="RAFT iteration steps to use for each scale (e.g., [2,5,8,11] for 4 scales)",
                                  default=[2, 5, 8, 11])
+        self.parser.add_argument("--freeze_of_net",
+                                 help="if set, freezes the optical flow network (position_encoder and position models)",
+                                 action="store_true")
         self.parser.add_argument("--k_model_type",
                                  type=str,
                                  help="intrinsics model type",
@@ -195,6 +199,11 @@ class MonodepthOptions:
                                  type=float,
                                  help="explicit flow-based geometry loss weight (pose_flow vs optical flow)",
                                  default=0.0)
+        self.parser.add_argument("--explicit_flow_type",
+                                 type=str,
+                                 help="type of explicit flow: 'pose_flow_trans' (pose_flow_trans vs optical flow) or 'pose_flow' (pose_flow vs optical flow)",
+                                 choices=['pose_flow_trans','pose_flow'],
+                                 default='pose_flow')
         self.parser.add_argument("--of_supervised_with_which",
                                  type=str,
                                  help="what to use for optical flow supervision: 'outputs_refined' (outputs['refined']) or 'inputs_color'",

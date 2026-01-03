@@ -667,7 +667,18 @@ class RAFTWrapper(torch.nn.Module):
                                     mode="bilinear", align_corners=True)
                 # Scale flow magnitude: when resolution is 1/2^scale, flow is 1/2^scale
                 flow = flow / (2 ** scale)
-            
+
+
+                # --- strategyA: smooth low-res flow ---
+                # smooth_kernel = 3
+                # flow = F.avg_pool2d(flow, kernel_size=smooth_kernel, stride=1, padding=smooth_kernel//2)
+
+                # # detach to prevent gradient backprop to RAFT
+                detach_low_res = True
+                if detach_low_res:
+                    flow = flow.detach()
+
+
             flow = self._sanitize_flow(flow)
             # Clamp uses original max_disp scaled by resolution factor
             flow = self._clamp_flow(flow, scale_factor=1.0 / (2 ** scale) if scale > 0 else 1.0)
@@ -1548,12 +1559,13 @@ class Trainer:
 
             before_op_time = time.time()
 
-            # position
-            self.set_train_0()
-            _, losses_0 = self.process_batch_0(inputs)
-            self.model_optimizer_0.zero_grad()
-            losses_0["loss"].backward()
-            self.model_optimizer_0.step()
+            # position (skip if freeze_of_net is enabled)
+            if not self.opt.freeze_of_net:
+                self.set_train_0()
+                _, losses_0 = self.process_batch_0(inputs)
+                self.model_optimizer_0.zero_grad()
+                losses_0["loss"].backward()
+                self.model_optimizer_0.step()
 
             # depth, pose, transform
             self.set_train()
