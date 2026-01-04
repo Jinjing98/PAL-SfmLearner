@@ -69,6 +69,40 @@ def get_smooth_bright(transform, target, pred, occu_mask):
     
     return (grad_transform_x.sum() / mask_x.sum() + grad_transform_y.sum() / mask_y.sum())
 
+def compute_flow_huber_loss(pred,        # rigid flow: [B, 2, H, W]
+                            target,      # optical flow: [B, 2, H, W]
+                            occu_mask,   # [B, 1, H, W] or [B, H, W]
+                            delta=1.0,
+                            eps=1e-7):
+    """
+    Huber (SmoothL1) loss for optical flow with occlusion mask.
+    Small residual -> L2 (rotation-friendly)
+    Large residual -> L1 (robust to outliers)
+    """
+
+    if occu_mask.dim() == 3:
+        occu_mask = occu_mask.unsqueeze(1)  # [B,1,H,W]
+
+    # flow residual
+    residue = pred - target                       # [B,2,H,W]
+    residue_norm = torch.norm(residue, dim=1, keepdim=True)  # [B,1,H,W]
+
+    # apply occlusion mask
+    residue_norm = residue_norm * occu_mask
+
+    # Huber formulation
+    abs_res = residue_norm
+    quadratic = torch.clamp(abs_res, max=delta)
+    linear = abs_res - quadratic
+
+    huber_loss = 0.5 * quadratic ** 2 / delta + linear
+
+    # normalize by valid pixels
+    loss = huber_loss.sum() / (occu_mask.sum() + eps)
+
+    return loss
+
+
 def compute_flow_berhu_loss(pred,        # rigid flow: [B, 2, H, W]
                             target,      # optical flow: [B, 2, H, W]
                             occu_mask,   # [B, 1, H, W] or [B, H, W]

@@ -41,7 +41,7 @@ from utils.warping import (
 from utils import flow_vis, flow_vis_robust
 
 from loss import get_smooth_loss, get_smooth_bright, ncc_loss, SSIM
-from loss import compute_flow_berhu_loss
+from loss import compute_flow_berhu_loss, compute_flow_huber_loss
 from networks.pose_decoder import PoseDecoder
 from torch.utils.data import DataLoader, ConcatDataset
 from tensorboardX import SummaryWriter
@@ -2225,12 +2225,34 @@ class Trainer:
                 T_3x4 = T[:, :3, :] if T.shape[1] == 4 else T
                 pix_coords = self.project_3d[source_scale](
                     cam_points, cam_K_3x3, T_3x4)
-
                 outputs[("sample", frame_id, scale)] = pix_coords
-
                 # Compute pose_flow for visual inspection
                 pose_flow_2d = self._compute_pose_flow(pix_coords)
                 outputs[("pose_flow", "high", frame_id, scale)] = pose_flow_2d#.detach()
+
+                #//////contruct pose_flow_trans and pose_flow_rot; use for L_flow_transonly supervsion/////////////
+                # only used if we want addtionaly trans_only_flow supervision
+                # somehow like the auto rectify concept.
+                I = torch.eye(3, device=T_3x4.device, dtype=T_3x4.dtype).unsqueeze(0).repeat(T_3x4.shape[0], 1, 1)
+                zero = torch.zeros_like(T_3x4[:, :3, 3:4])
+                R = T_3x4[:, :3, :3]
+                t = T_3x4[:, :3, 3:4]
+
+                T_trans_only = torch.cat([I, t], dim=2)       # [I | t]
+                T_rot_only   = torch.cat([R, zero], dim=2)    # [R | 0]
+
+                pix_coords_trans_only = self.project_3d[source_scale](
+                    cam_points, cam_K_3x3, T_trans_only)
+                pix_coords_rot_only = self.project_3d[source_scale](
+                    cam_points, cam_K_3x3, T_rot_only)
+
+                pose_flow_2d_trans_only = self._compute_pose_flow(pix_coords_trans_only)
+                pose_flow_2d_rot_only = self._compute_pose_flow(pix_coords_rot_only)
+
+                outputs[("pose_flow_trans", "high", frame_id, scale)] = pose_flow_2d_trans_only
+                outputs[("pose_flow_rot", "high", frame_id, scale)] = pose_flow_2d_rot_only
+                #//////
+
 
                 outputs[("color", frame_id, scale)] = F.grid_sample(
                     inputs[("color", frame_id, source_scale)],
@@ -2348,11 +2370,24 @@ class Trainer:
                     raise ValueError(f"posedepth_supervised_with_which '{posedepth_supervised_with}' not supported. Only 'outputs_refined' is supported.")
 
                 if debug_flow_based_geo:
-                    loss_explict_geo += compute_flow_berhu_loss(
-                        outputs[("pose_flow", "high", frame_id, scale)],
-                        outputs[("position", "high", scale, frame_id,)],
-                        occu_mask_backward
-                    )                
+                    explicit_flow_type = getattr(self.opt, 'explicit_flow_type', 'pose_flow')
+                    
+                    if explicit_flow_type == 'pose_flow_Berhu':
+                        loss_explict_geo += compute_flow_huber_loss(
+                            outputs[("pose_flow", "high", frame_id, scale)],
+                            outputs[("position", "high", scale, frame_id,)],
+                            occu_mask_backward
+                        )
+                    elif explicit_flow_type == 'pose_flow_trans_Huber':
+                        # use the trans only flow loss 
+                        loss_explict_geo += compute_flow_huber_loss(
+                            outputs[("pose_flow_trans", "high", frame_id, scale)],
+                            outputs[("position", "high", scale, frame_id,)]-outputs[("pose_flow_rot", "high", frame_id, scale)].detach(),
+                            occu_mask_backward
+                        )
+                    else:
+                        raise ValueError(f"explicit_flow_type '{explicit_flow_type}' not supported. Only 'pose_flow' and 'pose_flow_trans' are supported.")  
+
                 loss_reprojection += (
                     self.compute_reprojection_loss(outputs[("color", frame_id, scale)], supervision_target) * occu_mask_backward).sum() / occu_mask_backward.sum()  
                 
@@ -2664,6 +2699,14 @@ class Trainer:
                     writer.add_image(
                         "pose_flow_{}_{}/{}".format(frame_id, s, j),
                         vis_flow_func(outputs[("pose_flow", "high", frame_id, s)][j].data), self.step)
+                    # add pose_flow_trans
+                    writer.add_image(
+                        "pose_flow_trans_{}_{}/{}".format(frame_id, s, j),
+                        vis_flow_func(outputs[("pose_flow_trans", "high", frame_id, s)][j].data), self.step)
+                    # add pose_flow_rot
+                    writer.add_image(
+                        "pose_flow_rot_{}_{}/{}".format(frame_id, s, j),
+                        vis_flow_func(outputs[("pose_flow_rot", "high", frame_id, s)][j].data), self.step)
 
                     if s == 0:
                         writer.add_image(
