@@ -8,7 +8,8 @@ lora_type: "lora"
 # lora_type: "dvlora"
 # lora_type: "none"
 lora_r: 4
-lora_apply_to_attn: True
+lora_apply_to_attn: False # default in endoDAC
+# lora_apply_to_attn: True
 
 dino_resize_hw:
   - 224
