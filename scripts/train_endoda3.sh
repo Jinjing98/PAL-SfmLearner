@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #SBATCH --job-name=end_pose
-#SBATCH --gpus=a100:1   # rtxa5000 p6000 rtx6000 a100 v100 # monst3r requires 48GB each, only a100 supports
+#SBATCH --gpus=v100:1   # rtxa5000 p6000 rtx6000 a100 v100 # monst3r requires 48GB each, only a100 supports
 #SBATCH --nodes=1  # several gpus on one node
 #SBATCH --ntasks-per-node=1 #used for multi gpu training
 #SBATCH --mem=48G #64G #35G#25G  # 20G may cause bus error?   # mem * num_GPUS
@@ -102,9 +102,13 @@ CUDA_VISIBLE_DEVICES=0 python /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLear
 --exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_ofRaftLastIterOnly_detachLowRes \
 --exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_ofRaftLastIterOnly_detachLowRes_explicitFlowGeometryHUBER_W01_reporj_W1_b6 \
 --exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_ofRaftLastIterOnly_detachLowRes_explicitFlowGeometryHUBER_transflowOnly_W01_reporj_W1 \
---of_model_type raft \
---photo_reprojection 1.0 \
---explicit_flow_geometry 0.1 \
+--da3_depth_regression_target depth2disp_v3 --depth_model_type depthanything3 --pretrained_path depth-anything/da3-base \
+--exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2dispV3_medianNormDepthNativePhoto_wMultiScaleD \
+# --of_model_type raft \
+# --photo_reprojection 1.0 \
+# --explicit_flow_geometry 0.1 \
+# --explicit_flow_type pose_flow_trans_Huber \
+
 # --batch_size 6 \
 # --train_frame_ids 0 -3 3 \
 # --exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_trnFrameidDelta3 \
@@ -146,11 +150,14 @@ CUDA_VISIBLE_DEVICES=0 python /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLear
 # explict OF supervision?
 # raw_disp; then skip scale in disp2depth
 
+# DA3
+# 126153 full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2dispV3_medianNormDepthNativePhoto_wMultiScaleD
+
 
 # need HubertoLeanrRot (L_ph+0.1L_flow)
 # 126137 full_endodacB_angleaxis_baseline_OFrawSup_ofRaftLastIterOnly_detachLowRes_explicitFlowGeometryHUBER_W01_reporj_W1_b6
 # 126144 full_endodacB_angleaxis_baseline_OFrawSup_ofRaftLastIterOnly_detachLowRes_explicitFlowGeometryHUBER_transflowOnly_W01_reporj_W1_b6
-# 126145 full_endodacB_angleaxis_baseline_OFrawSup_ofRaftLastIterOnly_detachLowRes_explicitFlowGeometryHUBER_transflowOnly_W01_reporj_W1
+# 126146 full_endodacB_angleaxis_baseline_OFrawSup_ofRaftLastIterOnly_detachLowRes_explicitFlowGeometryHUBER_transflowOnly_W01_reporj_W1
 
 # Tuning_RAFTOF_best_setting + Flow_only_loss
 # 126048 full_endodacB_angleaxis_baseline_OFrawSup_ofRaftLastIterOnly_smoothLowRes_explicitFlowGeometryOnly_W1
