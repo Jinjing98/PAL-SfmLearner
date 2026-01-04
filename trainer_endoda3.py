@@ -2444,6 +2444,7 @@ class Trainer:
                 else:
                     raise ValueError(f"posedepth_supervised_with_which '{posedepth_supervised_with}' not supported. Only 'outputs_refined' is supported.")
 
+                # if debug_flow_based_geo and scale == 0:
                 if debug_flow_based_geo:
                     explicit_flow_type = getattr(self.opt, 'explicit_flow_type', 'pose_flow')
                     
@@ -2490,7 +2491,12 @@ class Trainer:
 
             # Apply weights and add to total loss
             loss += self.opt.photo_reprojection * (loss_reprojection / 2.0)
-            loss += self.opt.explicit_flow_geometry * (loss_explict_geo / 2.0)
+            # Apply explicit flow geometry loss only after warm-up epoch
+            warmup_epoch = getattr(self.opt, 'explicit_flow_geometry_warmup_epoch', 5)
+            current_epoch = getattr(self, 'epoch', 0)  # Default to 0 if epoch not set (e.g., during initialization)
+            if current_epoch >= warmup_epoch and \
+                ('trans' in self.opt.explicit_flow_type or 'rot' in self.opt.explicit_flow_type):
+                loss += self.opt.explicit_flow_geometry * (loss_explict_geo / 2.0)
             loss += self.opt.transform_constraint * (loss_transform / 2.0)
             loss += self.opt.transform_smoothness * (loss_cvt / 2.0) 
             loss += self.opt.disparity_smoothness * smooth_loss / (2 ** scale)
