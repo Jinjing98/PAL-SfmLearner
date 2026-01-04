@@ -144,7 +144,8 @@ class EndoDepthAnything3Net(nn.Module):
                  ref_view_strategy="saddle_balanced",
                  dino_resize_hw=None,
                  lora_type="none",
-                 lora_r=4):
+                 lora_r=4,
+                 lora_apply_to_attn=False):
         """
         Initialize EndoDepthAnything3Net with given yaml-initialized configuration.
         
@@ -154,6 +155,8 @@ class EndoDepthAnything3Net(nn.Module):
                            divisible by PATCH_SIZE (14).
             lora_type: Type of LoRA to apply. Options: "none", "lora", "dvlora". Default: "none"
             lora_r: Rank of LoRA. Default: 4
+            lora_apply_to_attn: If True, also apply LoRA to attention projection layers (attn.proj).
+                               Default: False (only applies to MLP feed-forward layers)
         """
         super().__init__()
 
@@ -175,6 +178,7 @@ class EndoDepthAnything3Net(nn.Module):
         assert lora_r > 0, "lora_r must be greater than 0"
         self.lora_type = lora_type
         self.lora_r = lora_r
+        self.lora_apply_to_attn = lora_apply_to_attn
 
         self.backbone = net if isinstance(net, nn.Module) else create_object(_wrap_cfg(net))
         
@@ -219,6 +223,7 @@ class EndoDepthAnything3Net(nn.Module):
     def _apply_lora_to_backbone(self):
         """
         Apply LoRA to the MLP layers in the backbone transformer blocks.
+        Optionally also applies LoRA to attention projection layers if lora_apply_to_attn is True.
         Following the pattern from endodac.py
         """
         if not hasattr(self.backbone, 'blocks'):
@@ -230,20 +235,25 @@ class EndoDepthAnything3Net(nn.Module):
                     for blk in module.blocks:
                         if hasattr(blk, 'mlp') and hasattr(blk.mlp, 'fc1') and hasattr(blk.mlp, 'fc2'):
                             self._apply_lora_to_block(blk)
+                            attn_info = " (including attn.proj)" if self.lora_apply_to_attn else ""
+                            print(f"Applied LoRA to block{attn_info}: {blk}")
                     break
         else:
             # Standard case: backbone has blocks attribute
             for blk in self.backbone.blocks:
                 if hasattr(blk, 'mlp') and hasattr(blk.mlp, 'fc1') and hasattr(blk.mlp, 'fc2'):
                     self._apply_lora_to_block(blk)
+                    attn_info = " (including attn.proj)" if self.lora_apply_to_attn else ""
+                    print(f"Applied LoRA to block{attn_info}: {blk}")
     
     def _apply_lora_to_block(self, blk):
         """
-        Apply LoRA to a single transformer block's MLP layers.
+        Apply LoRA to a single transformer block's MLP layers and optionally attention projection layer.
         
         Args:
-            blk: Transformer block with mlp attribute containing fc1 and fc2
+            blk: Transformer block with mlp attribute containing fc1 and fc2, and optionally attn.proj
         """
+        # Apply LoRA to MLP feed-forward layers
         mlp_in_features = blk.mlp.fc1.in_features
         mlp_hidden_features = blk.mlp.fc1.out_features
         mlp_out_features = blk.mlp.fc2.out_features
@@ -254,6 +264,16 @@ class EndoDepthAnything3Net(nn.Module):
         elif self.lora_type == "lora":
             blk.mlp.fc1 = LoraLinear(mlp_in_features, mlp_hidden_features, r=self.lora_r)
             blk.mlp.fc2 = LoraLinear(mlp_hidden_features, mlp_out_features, r=self.lora_r)
+        
+        # Optionally apply LoRA to attention projection layer
+        if self.lora_apply_to_attn and hasattr(blk, 'attn') and hasattr(blk.attn, 'proj'):
+            attn_proj_in_features = blk.attn.proj.in_features
+            attn_proj_out_features = blk.attn.proj.out_features
+            
+            if self.lora_type == "dvlora":
+                blk.attn.proj = DVLinear(attn_proj_in_features, attn_proj_out_features, r=self.lora_r, lora_alpha=self.lora_r)
+            elif self.lora_type == "lora":
+                blk.attn.proj = LoraLinear(attn_proj_in_features, attn_proj_out_features, r=self.lora_r)
 
     def forward(
         self,

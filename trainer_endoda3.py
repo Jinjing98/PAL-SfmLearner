@@ -2448,6 +2448,12 @@ class Trainer:
                     explicit_flow_type = getattr(self.opt, 'explicit_flow_type', 'pose_flow')
                     
                     if explicit_flow_type == 'pose_flow_Berhu':
+                        loss_explict_geo += compute_flow_berhu_loss(
+                            outputs[("pose_flow", "high", frame_id, scale)],
+                            outputs[("position", "high", scale, frame_id,)],
+                            occu_mask_backward
+                        )
+                    elif explicit_flow_type == 'pose_flow_Huber':
                         loss_explict_geo += compute_flow_huber_loss(
                             outputs[("pose_flow", "high", frame_id, scale)],
                             outputs[("position", "high", scale, frame_id,)],
