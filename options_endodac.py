@@ -323,8 +323,18 @@ class MonodepthOptions:
                                  choices=["hamlyn", "c3vd", "endovis"],
                                  help="which split to run eval on")
         self.parser.add_argument("--save_pred_disps",
-                                 help="if set saves predicted disparities",
+                                 help="if set saves predicted disparities (cached mode: saves all at once at the end)",
                                  action="store_true")
+        self.parser.add_argument("--save_pred_disps_online",
+                                 help="if set saves predicted disparities/depths online (saves each frame immediately, no caching)",
+                                 action="store_true")
+        self.parser.add_argument("--compute_metadata_stats",
+                                 help="if set computes and prints metadata statistics (GT excluded pixels, clipped pixels, etc.)",
+                                 action="store_true")
+        self.parser.add_argument("--saved_folder",
+                                 help="folder to save outputs (visualizations, predictions). If None, uses load_weights_folder",
+                                 type=str,
+                                 default=None)
         self.parser.add_argument("--visualize_depth",
                                  help="if set saves visualized depth map",
                                  action="store_true")

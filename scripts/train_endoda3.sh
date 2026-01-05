@@ -110,7 +110,9 @@ CUDA_VISIBLE_DEVICES=0 python /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLear
 --exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_dacDA2Base_baseline \
 --endoda3_model_config /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/networks/configs/endo-da3-all-wowrapper-giant.yaml \
 --da3_depth_regression_target depth2disp --depth_model_type depthanything3 --pretrained_path depth-anything/da3-giant \
---exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3Giant_depth2disp_extraLoraOnAttnProj_wMultiScaleD \
+--exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3GiantGradClip1DepthLre05_depth2disp_extraLoraOnAttnProj_wMultiScaleD \
+--exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3GiantDepthLre05_depth2disp_extraLoraOnAttnProj_wMultiScaleD \
+# --grad_clip_max_norm 1.0 \
 # --endoda3_model_config /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/networks/configs/endo-da3-all-wowrapper-small.yaml \
 # --da3_depth_regression_target depth2disp --depth_model_type depthanything3 --pretrained_path depth-anything/da3-small \
 # --exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3Small_depth2disp_extraLoraOnAttnProj_wMultiScaleD \

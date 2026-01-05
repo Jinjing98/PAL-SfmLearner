@@ -40,14 +40,24 @@ python /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/evaluate_depth_endo
 --data_path /mnt/cluster/workspaces/jinjingxu/SCARED_Images_Resized/ \
 --split endovis \
 --eval_mono \
---model_type depthanything3 \
 --model_type endodac --load_weights_folder /mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm/endodac/full_endodacB_angleaxis_baseline_1211_0028/models/weights_19 \
 --model_type endodac --load_weights_folder /mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm/endodac/full_endodacB_euler_baseline_1212_1237/models/weights_19 \
 --model_type endodac --load_weights_folder /mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm/endodac/full_endodacB_euler_baseline_warmUp5k_1215_1154/models/weights_19 \
 --model_type endodac --load_weights_folder /mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm/endodac/full_endodacB_9D_baseline_1212_1642/models/weights_19 \
 --model_type endodac --load_weights_folder /mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm/endodac/full_endodacB_9D_baseline_warmUp5k_1215_1153/models/weights_19 \
 --model_type afsfm --load_weights_folder /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/weights/af_pretrained/Model_trained_end_to_end \
-# --test_data_file d6_kf2_small.txt \
+--model_type depthanything3 --load_weights_folder /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/weights/da3_placeholder \
+--test_data_file d6_kf2_small.txt \
+--test_data_file test_files.txt \
+--save_pred_disps_online \
+--visualize_depth \
+--compute_metadata_stats \
+--load_gt_from_npz \
+# --save_folder place_folder \
+
+# --save_per_frame_pred_root /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/weights/af_pretrained/Model_trained_end_to_end/depth_predictions \
+# --save_as_scaled \
+# --user_given_scale_factor 1000 \
 
 # cd /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner
 # python /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/evaluate_depth.py \
