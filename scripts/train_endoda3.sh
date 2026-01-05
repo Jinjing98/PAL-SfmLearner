@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #SBATCH --job-name=end_pose
-#SBATCH --gpus=a100:1   # rtxa5000 p6000 rtx6000 a100 v100 # monst3r requires 48GB each, only a100 supports
+#SBATCH --gpus=v100:1   # rtxa5000 p6000 rtx6000 a100 v100 # monst3r requires 48GB each, only a100 supports
 #SBATCH --nodes=1  # several gpus on one node
 #SBATCH --ntasks-per-node=1 #used for multi gpu training
 #SBATCH --mem=48G #64G #35G#25G  # 20G may cause bus error?   # mem * num_GPUS
@@ -68,8 +68,8 @@ CUDA_VISIBLE_DEVICES=0 python /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLear
 --da3_depth_regression_target depth2disp_v3 --depth_model_type depthanything3 --pretrained_path depth-anything/da3-base \
 --da3_depth_regression_target depth2disp_v2 --depth_model_type depthanything3 --pretrained_path depth-anything/da3-base \
 --da3_depth_regression_target disp --depth_model_type depthanything3 --pretrained_path depth-anything/da3-base \
---da3_depth_regression_target depth2disp --depth_model_type depthanything3 --pretrained_path depth-anything/da3-base \
 --depth_model_type endodac --pretrained_path /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/weights/depthanything \
+--da3_depth_regression_target depth2disp --depth_model_type depthanything3 --pretrained_path depth-anything/da3-base \
 --pose_model_type da3_internal \
 --pose_model_type separate_resnet \
 --k_model_type da3_internal \
@@ -106,14 +106,20 @@ CUDA_VISIBLE_DEVICES=0 python /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLear
 --exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2dispV3_medianNormDepthNativePhoto_wMultiScaleD \
 --exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_extraLoraOnAttnProj_wMultiScaleD \
 --exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_ofRaftLastIterOnly_detachLowRes_explicitFlowGeometryHUBER_transflowOnlySinceEP5_W01_reporj_W1 \
---of_model_type raft \
---photo_reprojection 1.0 \
---explicit_flow_geometry 0.01 \
---explicit_flow_type pose_flow_trans_Huber \
---explicit_flow_type pose_flow_Berhu \
---explicit_flow_geometry_warmup_epoch 5 \
---exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_explicitFlowGeometryBERHU_SCALE0ONLY_W001_reporj_W1 \
---exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_ofRaftLastIterOnly_detachLowRes_explicitFlowGeometryBERHU_SCALE0ONLY_W001_reporj_W1 \
+--exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_extraLoraOnAttnProj_wMultiScaleD_trnFrameidDelta5_seqInput \
+--exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_dacDA2Base_baseline \
+--da3_depth_regression_target depth2disp --depth_model_type depthanything3 --pretrained_path depth-anything/da3-giant \
+--exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3Giant_depth2disp_extraLoraOnAttnProj_wMultiScaleD \
+--da3_depth_regression_target depth2disp --depth_model_type depthanything3 --pretrained_path depth-anything/da3-small \
+--exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3Small_depth2disp_extraLoraOnAttnProj_wMultiScaleD \
+# --of_model_type raft \
+# --photo_reprojection 1.0 \
+# --explicit_flow_geometry 0.01 \
+# --explicit_flow_type pose_flow_trans_Huber \
+# --explicit_flow_type pose_flow_Berhu \
+# --explicit_flow_geometry_warmup_epoch 5 \
+# --exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_explicitFlowGeometryBERHU_SCALE0ONLY_W001_reporj_W1 \
+# --exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_ofRaftLastIterOnly_detachLowRes_explicitFlowGeometryBERHU_SCALE0ONLY_W001_reporj_W1 \
 # --train_frame_ids 0 -3 3 \
 # --exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_trnFrameidDelta3 \
 # --of_supervised_with_which outputs_refined \
@@ -153,6 +159,14 @@ CUDA_VISIBLE_DEVICES=0 python /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLear
 
 # explict OF supervision?
 # raw_disp; then skip scale in disp2depth
+
+# best DA3
+# 126325 full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_extraLoraOnAttnProj_wMultiScaleD_trnFrameidDelta5_seqInput
+# 126327 full_endodacB_angleaxis_baseline_OFrawSup_depthDA3Giant_depth2disp_extraLoraOnAttnProj_wMultiScaleD
+# 126328 full_endodacB_angleaxis_baseline_OFrawSup_depthDA3Small_depth2disp_extraLoraOnAttnProj_wMultiScaleD
+
+# endoDAC baseline
+# 126326 126324 full_endodacB_angleaxis_baseline_OFrawSup_dacDA2Base_baseline
 
 # DA3
 # 126153 full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2dispV3_medianNormDepthNativePhoto_wMultiScaleD
