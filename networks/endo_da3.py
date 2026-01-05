@@ -227,6 +227,7 @@ class EndoDepthAnything3Net(nn.Module):
         Following the pattern from endodac.py
         """
         if not hasattr(self.backbone, 'blocks'):
+            assert False, "Backbone doesn't have blocks attribute"
             # If backbone doesn't have blocks attribute, it might be a different structure
             # Try to find blocks recursively
             for name, module in self.backbone.named_modules():
@@ -241,10 +242,17 @@ class EndoDepthAnything3Net(nn.Module):
         else:
             # Standard case: backbone has blocks attribute
             for blk in self.backbone.blocks:
-                if hasattr(blk, 'mlp') and hasattr(blk.mlp, 'fc1') and hasattr(blk.mlp, 'fc2'):
-                    self._apply_lora_to_block(blk)
+                if hasattr(blk, 'mlp') and hasattr(blk.mlp, 'fc1') and hasattr(blk.mlp, 'fc2') \
+                    or (hasattr(blk.mlp, 'w12') and hasattr(blk.mlp, 'w3')):
                     attn_info = " (including attn.proj)" if self.lora_apply_to_attn else ""
-                    # print(f"Applied LoRA to block{attn_info}: {blk}")
+                    if hasattr(blk.mlp, 'fc1') and hasattr(blk.mlp, 'fc2'):
+                        print(f"Applying LoRA to MLP block{attn_info}")
+                        self._apply_lora_to_block(blk)
+                    elif hasattr(blk.mlp, 'w12') and hasattr(blk.mlp, 'w3'):
+                        print(f"Applying LoRA to SwiGLU block{attn_info}")
+                        self._apply_lora_to_block_swiglufused(blk)
+                else:
+                    assert False, "blk has no mlp or swiglufused"
     
     def _apply_lora_to_block(self, blk):
         """
@@ -270,6 +278,35 @@ class EndoDepthAnything3Net(nn.Module):
             attn_proj_in_features = blk.attn.proj.in_features
             attn_proj_out_features = blk.attn.proj.out_features
             
+            if self.lora_type == "dvlora":
+                blk.attn.proj = DVLinear(attn_proj_in_features, attn_proj_out_features, r=self.lora_r, lora_alpha=self.lora_r)
+            elif self.lora_type == "lora":
+                blk.attn.proj = LoraLinear(attn_proj_in_features, attn_proj_out_features, r=self.lora_r)
+
+    def _apply_lora_to_block_swiglufused(self, blk):
+        """
+        Apply LoRA to a single transformer block's SwiGLU feed-forward layers and optionally attention projection layer.
+        
+        Args:
+            blk: Transformer block with swiglufused attribute containing w12 and w3
+        """
+        # Apply LoRA to SwiGLU feed-forward layers
+        # In SwiGLU: w12 has shape [in_features, 2 * hidden_features], w3 has shape [hidden_features, out_features]
+        swiglufused_in_features = blk.mlp.w12.in_features
+        swiglufused_w12_out_features = blk.mlp.w12.out_features  # This is 2 * hidden_features (e.g., 8192 for pretrained)
+        swiglufused_hidden_features = blk.mlp.w3.in_features  # This is the actual hidden_features (e.g., 4096 for pretrained)
+        swiglufused_out_features = blk.mlp.w3.out_features
+        if self.lora_type == "dvlora":
+            blk.mlp.w12 = DVLinear(swiglufused_in_features, swiglufused_w12_out_features, r=self.lora_r, lora_alpha=self.lora_r)
+            blk.mlp.w3 = DVLinear(swiglufused_hidden_features, swiglufused_out_features, r=self.lora_r, lora_alpha=self.lora_r)
+        elif self.lora_type == "lora":
+            blk.mlp.w12 = LoraLinear(swiglufused_in_features, swiglufused_w12_out_features, r=self.lora_r)
+            blk.mlp.w3 = LoraLinear(swiglufused_hidden_features, swiglufused_out_features, r=self.lora_r)
+        
+        # Optionally apply LoRA to attention projection layer
+        if self.lora_apply_to_attn and hasattr(blk, 'attn') and hasattr(blk.attn, 'proj'):
+            attn_proj_in_features = blk.attn.proj.in_features
+            attn_proj_out_features = blk.attn.proj.out_features
             if self.lora_type == "dvlora":
                 blk.attn.proj = DVLinear(attn_proj_in_features, attn_proj_out_features, r=self.lora_r, lora_alpha=self.lora_r)
             elif self.lora_type == "lora":
@@ -518,7 +555,8 @@ if __name__ == "__main__":
     # Set seed again before creating second model to ensure same initialization
     set_seed(42)
     
-    Model = create_object(load_config("networks/configs/endo-da3-all-wowrapper.yaml"))
+    # Model = create_object(load_config("networks/configs/endo-da3-all-wowrapper.yaml"))
+    Model = create_object(load_config("networks/configs/endo-da3-all-wowrapper-giant.yaml"))
     # Model = create_object(load_config("networks/configs/endo-da3-depth-wowrapper.yaml"))
     # Model = create_object(load_config("networks/configs/endo-da3-depth-wowrapper-default.yaml"))
     Model.eval()
@@ -529,8 +567,9 @@ if __name__ == "__main__":
     print("Loading pretrained weights from DepthAnything3")
     print("="*60)
     
-    model_pretrained = DepthAnything3.from_pretrained("depth-anything/da3-base")
-    model_pretrained = model_pretrained.to(device="cuda")
+    # model_pretrained = DepthAnything3.from_pretrained("depth-anything/da3-base")
+    model_pretrained = DepthAnything3.from_pretrained("depth-anything/da3-giant")
+    model_pretrained = model_pretrained#.to(device="cuda")
 
     load_pretrained = False
     load_pretrained = True
@@ -548,9 +587,22 @@ if __name__ == "__main__":
         # intrinsics: B S 3 3 ;
 
         # Load weights into Model (without wrapper - needs to remove both prefixes)
+        # disable_modules = []
+        # if hasattr(Model, 'cam_dec') and Model.cam_dec is not None:
+            # disable_modules = ["cam_dec"] if Model.cam_dec.rot_representation!="quat_xyzw" else []
+        
+        # Determine if cam_dec should be disabled based on rotation representation
         disable_modules = []
         if hasattr(Model, 'cam_dec') and Model.cam_dec is not None:
-            disable_modules = ["cam_dec"] if Model.cam_dec.rot_representation!="quat_xyzw" else []
+            if hasattr(Model.cam_dec, 'rot_representation'):
+                if Model.cam_dec.rot_representation != "quat_xyzw":
+                    # disable_modules = ["cam_dec"] # old models before 01.01.2025
+                    disable_modules.append("cam_dec.fc_qvec")
+                    disable_modules.append("cam_dec.fc_t")
+            if hasattr(Model.cam_dec, 'fc_fov_arch'):
+                if Model.cam_dec.fc_fov_arch != "linear_relu":
+                    disable_modules.append("cam_dec.fc_fov")
+
         load_pretrained_weights(
             model=Model,
             pretrained_model=model_pretrained,
