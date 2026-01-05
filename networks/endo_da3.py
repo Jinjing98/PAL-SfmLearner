@@ -236,7 +236,7 @@ class EndoDepthAnything3Net(nn.Module):
                         if hasattr(blk, 'mlp') and hasattr(blk.mlp, 'fc1') and hasattr(blk.mlp, 'fc2'):
                             self._apply_lora_to_block(blk)
                             attn_info = " (including attn.proj)" if self.lora_apply_to_attn else ""
-                            print(f"Applied LoRA to block{attn_info}: {blk}")
+                            # print(f"Applied LoRA to block{attn_info}: {blk}")
                     break
         else:
             # Standard case: backbone has blocks attribute
@@ -244,7 +244,7 @@ class EndoDepthAnything3Net(nn.Module):
                 if hasattr(blk, 'mlp') and hasattr(blk.mlp, 'fc1') and hasattr(blk.mlp, 'fc2'):
                     self._apply_lora_to_block(blk)
                     attn_info = " (including attn.proj)" if self.lora_apply_to_attn else ""
-                    print(f"Applied LoRA to block{attn_info}: {blk}")
+                    # print(f"Applied LoRA to block{attn_info}: {blk}")
     
     def _apply_lora_to_block(self, blk):
         """

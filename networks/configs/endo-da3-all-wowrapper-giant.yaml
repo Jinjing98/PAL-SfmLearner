@@ -25,20 +25,26 @@ net:
     name: EndoDinoVisionTransformer
     args: as_params
   
-  # vit-Small setting up
-  ffn_layer: "mlp"
-  embed_dim: 384
-  depth: 12
-  num_heads: 6
+  # vit-Giant setting up
+  # differ from base and small
+  init_values: 1e-5 # default in DA3 Giant; 
+  ffn_layer: "swiglufused" # default in DA3 Giant
+
+  embed_dim: 1536
+  depth: 40
+  num_heads: 24
   mlp_ratio: 4.0
   num_register_tokens: 0
 
-  alt_start: 4
-  qknorm_start: 4
-  rope_start: 4
+
+
+
+  alt_start: 13
+  qknorm_start: 13
+  rope_start: 13
   cat_token: True
   # used for extract DPT input for depth estimation
-  out_layers: [5, 7, 9, 11] # default in DA3
+  out_layers: [19, 27, 33, 39] # default in DA3 Giant
   # out_layers: [8, 9, 10, 11] # endoDAC style
 
   # residual_block_indexes: [2, 5, 8, 11] # endodac
@@ -64,10 +70,10 @@ head:
   # whether to enable multi-scale output
   enable_multi_scale: True
   # enable_multi_scale: False
-  dim_in: &head_dim_in 768
+  dim_in: &head_dim_in 3072
   output_dim: 2
-  features: &head_features 64
-  out_channels: &head_out_channels [48, 96, 192, 384]
+  features: &head_features 256
+  out_channels: &head_out_channels [256, 512, 1024, 1024]
   activation: "exp"
   head_names: ["depth", "depth_conf"]
   
@@ -82,7 +88,7 @@ cam_enc:
     name: CameraEnc
     args: as_params
 
-  dim_out: 384
+  dim_out: 1536
 
 cam_dec:
   __object__:
@@ -90,7 +96,7 @@ cam_dec:
     name: EndoCameraDec
     args: as_params
 
-  dim_in: 768
+  dim_in: 3072
   # rot_representation: "euler"
   # rot_representation: "quat"
   # rot_representation: "6D"

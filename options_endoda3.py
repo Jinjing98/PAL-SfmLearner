@@ -301,6 +301,10 @@ class MonodepthOptions:
                                  type=int,
                                  help="step size of the scheduler",
                                  default=10)
+        # self.parser.add_argument("--grad_clip_max_norm",
+                                #  type=float,
+                                #  help="maximum norm for gradient clipping (default: 1.0, set to 0 to disable)",
+                                #  default=1.0)
 
         # ABLATION options
         self.parser.add_argument("--v1_multiscale",

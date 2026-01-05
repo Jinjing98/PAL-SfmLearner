@@ -1633,6 +1633,10 @@ class Trainer:
                 _, losses_0 = self.process_batch_0(inputs)
                 self.model_optimizer_0.zero_grad()
                 losses_0["loss"].backward()
+                # Gradient clipping for position/optical flow optimizer
+                # grad_clip_max_norm = getattr(self.opt, 'grad_clip_max_norm', 1.0)
+                # if grad_clip_max_norm > 0:
+                    # torch.nn.utils.clip_grad_norm_(self.parameters_to_train_0, grad_clip_max_norm)
                 self.model_optimizer_0.step()
 
             # depth, pose, transform
@@ -1640,6 +1644,10 @@ class Trainer:
             outputs, losses = self.process_batch(inputs)
             self.model_optimizer.zero_grad()
             losses["loss"].backward()
+            # Gradient clipping for main optimizer (depth, pose, transform)
+            # grad_clip_max_norm = getattr(self.opt, 'grad_clip_max_norm', 1.0)
+            # if grad_clip_max_norm > 0:
+                # torch.nn.utils.clip_grad_norm_(self.parameters_to_train, grad_clip_max_norm)
             self.model_optimizer.step()
             
             duration = time.time() - before_op_time

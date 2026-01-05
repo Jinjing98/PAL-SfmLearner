@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #SBATCH --job-name=end_pose
-#SBATCH --gpus=v100:1   # rtxa5000 p6000 rtx6000 a100 v100 # monst3r requires 48GB each, only a100 supports
+#SBATCH --gpus=a100:1   # rtxa5000 p6000 rtx6000 a100 v100 # monst3r requires 48GB each, only a100 supports
 #SBATCH --nodes=1  # several gpus on one node
 #SBATCH --ntasks-per-node=1 #used for multi gpu training
 #SBATCH --mem=48G #64G #35G#25G  # 20G may cause bus error?   # mem * num_GPUS
@@ -108,10 +108,12 @@ CUDA_VISIBLE_DEVICES=0 python /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLear
 --exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_ofRaftLastIterOnly_detachLowRes_explicitFlowGeometryHUBER_transflowOnlySinceEP5_W01_reporj_W1 \
 --exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_extraLoraOnAttnProj_wMultiScaleD_trnFrameidDelta5_seqInput \
 --exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_dacDA2Base_baseline \
+--endoda3_model_config /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/networks/configs/endo-da3-all-wowrapper-giant.yaml \
 --da3_depth_regression_target depth2disp --depth_model_type depthanything3 --pretrained_path depth-anything/da3-giant \
 --exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3Giant_depth2disp_extraLoraOnAttnProj_wMultiScaleD \
---da3_depth_regression_target depth2disp --depth_model_type depthanything3 --pretrained_path depth-anything/da3-small \
---exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3Small_depth2disp_extraLoraOnAttnProj_wMultiScaleD \
+# --endoda3_model_config /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/networks/configs/endo-da3-all-wowrapper-small.yaml \
+# --da3_depth_regression_target depth2disp --depth_model_type depthanything3 --pretrained_path depth-anything/da3-small \
+# --exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3Small_depth2disp_extraLoraOnAttnProj_wMultiScaleD \
 # --of_model_type raft \
 # --photo_reprojection 1.0 \
 # --explicit_flow_geometry 0.01 \
@@ -162,8 +164,8 @@ CUDA_VISIBLE_DEVICES=0 python /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLear
 
 # best DA3
 # 126325 full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_extraLoraOnAttnProj_wMultiScaleD_trnFrameidDelta5_seqInput
-# 126327 full_endodacB_angleaxis_baseline_OFrawSup_depthDA3Giant_depth2disp_extraLoraOnAttnProj_wMultiScaleD
-# 126328 full_endodacB_angleaxis_baseline_OFrawSup_depthDA3Small_depth2disp_extraLoraOnAttnProj_wMultiScaleD
+# 126489 126469 126327 full_endodacB_angleaxis_baseline_OFrawSup_depthDA3Giant_depth2disp_extraLoraOnAttnProj_wMultiScaleD
+# 126468 126328 full_endodacB_angleaxis_baseline_OFrawSup_depthDA3Small_depth2disp_extraLoraOnAttnProj_wMultiScaleD
 
 # endoDAC baseline
 # 126326 126324 full_endodacB_angleaxis_baseline_OFrawSup_dacDA2Base_baseline
