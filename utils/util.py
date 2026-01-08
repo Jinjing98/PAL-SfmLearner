@@ -236,16 +236,21 @@ def create_dataset_from_file_or_list(file_or_list, splits_dir, dataset_class, da
             load_gt_poses = False
         load_gt_depth = is_test_file if mode == 'val' else False
         depth_offline_loading = is_test_file  # use gt_depths.npz
-        
+        teacher_depth_loading = opt.enable_teacher_student_training
         # Create dataset for this file
         # Check if dataset class accepts load_gt_poses, load_gt_depth, depth_offline_loading
         # Some datasets (like in trainer_endodac) may not support all these parameters
+        dataset_kwargs = {
+            'load_gt_poses': load_gt_poses,
+            'load_gt_depth': load_gt_depth,
+            'depth_offline_loading': depth_offline_loading,
+            'teacher_depth_loading': teacher_depth_loading,
+        }
+        
         dataset = dataset_class(
             data_path, filenames, height, width,
             frame_ids, num_input_images, is_train=is_train, img_ext=img_ext,
-            load_gt_poses=load_gt_poses,
-            load_gt_depth=load_gt_depth,
-            depth_offline_loading=depth_offline_loading,
+            **dataset_kwargs
         )
 
         

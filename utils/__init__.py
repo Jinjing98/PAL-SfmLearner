@@ -27,6 +27,8 @@ from .dataset_utils import (
     get_poses_for_frames,
     get_gt_Ks,
     get_k_for_frames,
+    construct_teacher_depth_filename,
+    load_teacher_depth,
 )
 from .metrics import compute_depth_metrics
 from .visualise import (

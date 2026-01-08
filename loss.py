@@ -239,6 +239,132 @@ def compute_reprojection_loss(pred, target, ssim):
     return reprojection_loss
 
 
+def compute_hf_distillation_loss(student_hf, teacher_hf, loss_type='mse'):
+    """
+    Compute high-frequency distillation loss.
+    
+    Args:
+        student_hf: Student high-frequency map (B, C, H, W)
+        teacher_hf: Teacher high-frequency map (B, C, H, W)
+        loss_type: 'mse' or 'l1' (default: 'mse')
+    
+    Returns:
+        Scalar loss value
+    """
+    if loss_type == 'mse':
+        return F.mse_loss(student_hf, teacher_hf)
+    elif loss_type == 'l1':
+        return F.l1_loss(student_hf, teacher_hf)
+    else:
+        raise ValueError(f"Unsupported loss_type: {loss_type}. Use 'mse' or 'l1'.")
+
+
+def compute_topology_loss(student_hf, teacher_hf):
+    """
+    Compute topology loss using Wasserstein distance between persistent homology diagrams.
+    Placeholder implementation using simple MSE for now.
+    Can be replaced with perslay/gudhi for actual persistent homology.
+    
+    Args:
+        student_hf: Student high-frequency map (B, C, H, W)
+        teacher_hf: Teacher high-frequency map (B, C, H, W)
+    
+    Returns:
+        Scalar loss value
+    """
+    # Placeholder: simple MSE approximation
+    # TODO: Replace with actual persistent homology computation using perslay/gudhi
+    # For now, use a simple approximation that captures topological differences
+    return torch.mean((student_hf - teacher_hf)**2)
+
+
+def compute_reconstruction_loss_hfd(student_depth_norm, target_depth_norm, loss_type='l1'):
+    """
+    Compute reconstruction loss on normalized depth for HFD training.
+    
+    Args:
+        student_depth_norm: Normalized student depth (B, C, H, W)
+        target_depth_norm: Normalized target depth (B, C, H, W)
+        loss_type: 'l1' or 'l2' (default: 'l1')
+    
+    Returns:
+        Scalar loss value
+    """
+    if loss_type == 'l1':
+        return F.l1_loss(student_depth_norm, target_depth_norm)
+    elif loss_type == 'l2':
+        return F.mse_loss(student_depth_norm, target_depth_norm)
+    else:
+        raise ValueError(f"Unsupported loss_type: {loss_type}. Use 'l1' or 'l2'.")
+
+
+def compute_hfd_losses(student_depth, teacher_depth, gt_depth=None,
+                       hf_loss_weight=0.4, topo_loss_weight=0.15, recon_loss_weight=1.0,
+                       hf_loss_type='mse', recon_loss_type='l1', grad_threshold=0.01):
+    """
+    Compute all HFD losses: HF distillation, topology, and reconstruction.
+    Reuses functions from utils.hfd for HF map extraction.
+    
+    Args:
+        student_depth: Student predicted depth (B, C, H, W) or (B, H, W)
+        teacher_depth: Teacher depth from DepthAnything (B, C, H, W) or (B, H, W)
+        gt_depth: Optional ground truth depth (B, C, H, W) or (B, H, W)
+        hf_loss_weight: Weight for HF distillation loss (default: 0.4)
+        topo_loss_weight: Weight for topology loss (default: 0.15)
+        recon_loss_weight: Weight for reconstruction loss (default: 1.0)
+        hf_loss_type: 'mse' or 'l1' for HF loss (default: 'mse')
+        recon_loss_type: 'l1' or 'l2' for reconstruction loss (default: 'l1')
+        grad_threshold: Gradient threshold for HF mask (default: 0.01)
+    
+    Returns:
+        Dictionary with individual losses and total loss
+    """
+    assert student_depth.shape == teacher_depth.shape, "Student and teacher depth must have the same shape"
+    assert student_depth.dim() == 4, "Student depth must be 4D"
+    from utils.hfd import dwt_n_layer, scale_invariant_normalize, hf_mask_map
+    # Normalize depths for scale-invariant comparison
+    student_norm = scale_invariant_normalize(student_depth)
+    teacher_norm = scale_invariant_normalize(teacher_depth)
+    
+    # Extract high-frequency maps using (2-layer DWT)
+    #
+    student_hf = dwt_n_layer(student_norm, 2, wave='db2', use_torch_wavelets=True)
+    teacher_hf = dwt_n_layer(teacher_norm, 2, wave='db2', use_torch_wavelets=True)
+    
+    # Apply HF mask to remove low-gradient regions and noise
+    student_hf_masked, _ = hf_mask_map(student_hf, grad_threshold=grad_threshold)
+    teacher_hf_masked, mask = hf_mask_map(teacher_hf, grad_threshold=grad_threshold)
+    
+    # Compute HF distillation loss (only on masked regions)
+    if mask.sum() > 0:
+        loss_hf = compute_hf_distillation_loss(student_hf_masked, teacher_hf_masked, loss_type=hf_loss_type)
+    else:
+        loss_hf = torch.tensor(0.0, device=student_depth.device)
+    
+    # Compute topology loss
+    loss_topo = compute_topology_loss(student_hf_masked, teacher_hf_masked)
+    
+    # Compute reconstruction loss
+    if gt_depth is not None:
+        gt_norm = scale_invariant_normalize(gt_depth)
+        loss_recon = compute_reconstruction_loss_hfd(student_norm, gt_norm, loss_type=recon_loss_type)
+    else:
+        # Use teacher as target if GT not available
+        loss_recon = compute_reconstruction_loss_hfd(student_norm, teacher_norm, loss_type=recon_loss_type)
+    
+    # Total loss
+    total_loss = (recon_loss_weight * loss_recon + 
+                  hf_loss_weight * loss_hf + 
+                  topo_loss_weight * loss_topo)
+    
+    return {
+        'loss': total_loss,
+        'loss_recon': loss_recon,
+        'loss_hf': loss_hf,
+        'loss_topo': loss_topo
+    }
+
+
 def compute_losses(inputs, outputs, opt, ssim):
     """Computes all losses for the model
     

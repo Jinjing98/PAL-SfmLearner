@@ -13,11 +13,13 @@ from utils import (
     get_poses_for_frames,
     get_gt_Ks,
     get_k_for_frames,
+    load_teacher_depth,
 )
 
 DEFAULT_D7K4_SCENE_POINTS_DIR='/mnt/nct-zfs/TCO-All/SharedDatasets/SCARED_Depth/dataset_7/keyframe_4/data/scene_points'
 DATA_PATH='/mnt/cluster/datasets/SCARED/'
 DEPTH_PATH='/mnt/nct-zfs/TCO-All/SharedDatasets/SCARED_Depth/'
+TEACHER_DEPTH_DIR = '/mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/weights/da3_placeholder/pred_depths_online_train'
 
 class SCAREDDataset(MonoDataset):
     def __init__(self, *args, **kwargs):
@@ -64,7 +66,8 @@ class SCAREDDataset(MonoDataset):
 
 
 class SCAREDRAWDataset(SCAREDDataset):
-    def __init__(self, *args, load_gt_poses=True, load_gt_Ks=True, load_gt_depth=False, depth_offline_loading=False, **kwargs):
+    def __init__(self, *args, load_gt_poses=True, load_gt_Ks=True, load_gt_depth=False, 
+                 depth_offline_loading=False, teacher_depth_loading=False, **kwargs):
         # Set load_gt_depth before super().__init__() so check_depth() can access it
         self.load_gt_depth = load_gt_depth
         super(SCAREDRAWDataset, self).__init__(*args, **kwargs)
@@ -74,6 +77,11 @@ class SCAREDRAWDataset(SCAREDDataset):
         self.traj_data_root = DATA_PATH
         self.K_data_root = DEPTH_PATH
         self.trans_scale_gt_traj = 1000  # m to mm
+        self.teacher_depth_loading = teacher_depth_loading
+        
+        if self.teacher_depth_loading:
+            assert os.path.exists(TEACHER_DEPTH_DIR), f"Teacher depth directory not found: {TEACHER_DEPTH_DIR}"
+            print(f"Teacher depth loading enabled. Loading teacher depths from: {TEACHER_DEPTH_DIR}")
         if self.load_gt_poses:
             self.trajs_dict = get_gt_poses(
                 self.filenames,
@@ -177,6 +185,16 @@ class SCAREDRAWDataset(SCAREDDataset):
             depth_gt = np.fliplr(depth_gt)
 
         return depth_gt
+
+    def get_teacher_depth(self, folder, frame_index, side, do_flip):
+        """Load teacher depth and apply flip if needed"""
+        teacher_depth = load_teacher_depth(
+            TEACHER_DEPTH_DIR, folder, frame_index, self.height, self.width
+        )
+        if teacher_depth is not None:
+            if do_flip:
+                teacher_depth = np.fliplr(teacher_depth)
+        return teacher_depth
 
     def __getitem__(self, index):
         """Override to add GT depth loading from gt_depths_val.npz for validation"""

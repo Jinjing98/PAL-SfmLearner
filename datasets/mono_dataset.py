@@ -253,6 +253,14 @@ class MonoDataset(data.Dataset):
                 inputs[("depth_gt", 0, 0)] = np.expand_dims(depth_gt, 0)
                 inputs[("depth_gt", 0, 0)] = torch.from_numpy(inputs[("depth_gt", 0, 0)].astype(np.float32))
 
+        # Load teacher depth if enabled (with same do_flip flag for consistency)
+        if hasattr(self, 'teacher_depth_loading') and self.teacher_depth_loading:
+            teacher_depth = self.get_teacher_depth(folder, frame_index, side, do_flip)
+            if teacher_depth is not None:
+                inputs[("DA3_base_teacher_depth", 0, 0)] = torch.from_numpy(
+                    np.expand_dims(teacher_depth, 0).astype(np.float32)
+                )
+
         if "s" in self.frame_idxs:
             stereo_T = np.eye(4, dtype=np.float32)
             baseline_sign = -1 if do_flip else 1
@@ -270,3 +278,7 @@ class MonoDataset(data.Dataset):
 
     def get_depth(self, folder, frame_index, side, do_flip):
         raise NotImplementedError
+
+    def get_teacher_depth(self, folder, frame_index, side, do_flip):
+        """Optional method for loading teacher depth. Returns None by default."""
+        return None

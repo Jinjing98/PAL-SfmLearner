@@ -251,3 +251,59 @@ def get_gt_Ks(filenames, traj_data_root):
     print(f"Successfully loaded {len([v for v in Ks_dict.values() if v is not None])} camera intrinsics")
     return Ks_dict
 
+
+def construct_teacher_depth_filename(folder, frame_index):
+    """
+    Construct filename for teacher depth from DepthAnything3.
+    
+    Args:
+        folder: Folder string like 'dataset3/keyframe4'
+        frame_index: Frame index (1-indexed in SCARED)
+    
+    Returns:
+        Filename string without extension
+    """
+    dataset_part, keyframe_part = folder.split('/')
+    dataset_num = dataset_part.replace('dataset', '') if 'dataset' in dataset_part else ''
+    keyframe_num = keyframe_part.replace('keyframe', '') if 'keyframe' in keyframe_part else ''
+    # Format: dataset{num}_keyframe{num}_scene_points{frame_index-1:06d}
+    filename = f"dataset{dataset_num}_keyframe{keyframe_num}_scene_points{frame_index - 1:06d}"
+
+    return filename
+
+
+def load_teacher_depth(teacher_depth_dir, folder, frame_index, height, width):
+    """
+    Load teacher depth from pre-computed DepthAnything3 predictions.
+    
+    Args:
+        teacher_depth_dir: Directory containing teacher depth .npy files
+        folder: Folder string like 'dataset3/keyframe4'
+        frame_index: Frame index (1-indexed in SCARED)
+        height: Target height for resizing
+        width: Target width for resizing
+    
+    Returns:
+        Teacher depth as numpy array (H, W) or None if not found
+    """
+    filename_base = construct_teacher_depth_filename(folder, frame_index)
+    depth_path = os.path.join(teacher_depth_dir, f"{filename_base}.npy")
+    
+    if not os.path.exists(depth_path):
+        return None
+    
+    try:
+        teacher_depth = np.load(depth_path)
+        # assert teacher_depth.shape == (height, width), f"Teacher depth shape: {teacher_depth.shape} != ({height}, {width})"
+        assert teacher_depth.shape == (224, 280), f"Teacher depth shape: {teacher_depth.shape} != (224, 280)"
+
+        # resize as the output depth from head is in  256 320
+        import cv2
+        teacher_depth = cv2.resize(teacher_depth, (width, height), interpolation=cv2.INTER_NEAREST)
+
+        return teacher_depth.astype(np.float32)
+    except Exception as e:
+        print(f"Warning: Failed to load teacher depth from {depth_path}: {e}")
+        assert 0, f"Failed to load teacher depth from {depth_path}: {e}"
+        return None
+

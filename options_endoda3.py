@@ -139,6 +139,38 @@ class MonodepthOptions:
                                  help="weight for depth consistency loss (default: 0.1)",
                                  default=0.0)
 
+        # TEACHER-STUDENT Related Options
+        self.parser.add_argument("--enable_teacher_student_training",
+                                 help="if set, teacher_depth will be loaded; meanwhile enables teacher-student training with HFD and loads teacher depth from pre-computed DepthAnything3 predictions",
+                                 action="store_true")
+        # teacher student use HFD based loss HFD (High-Frequency Distillation) loss weights
+        self.parser.add_argument("--hfd_hf_loss_weight",
+                                 type=float,
+                                 help="weight for high-frequency distillation loss (default: 0.4)",
+                                 default=0.5)
+        self.parser.add_argument("--hfd_topo_loss_weight",
+                                 type=float,
+                                 help="weight for topology loss (default: 0.15)",
+                                 default=0.1)
+        self.parser.add_argument("--hfd_recon_loss_weight",
+                                 type=float,
+                                 help="weight for reconstruction loss in HFD (default: 1.0)",
+                                 default=1.0)
+        self.parser.add_argument("--hfd_hf_loss_type",
+                                 type=str,
+                                 help="loss type for high-frequency distillation: 'mse' or 'l1' (default: 'mse')",
+                                 choices=['mse', 'l1'],
+                                 default='mse')
+        self.parser.add_argument("--hfd_recon_loss_type",
+                                 type=str,
+                                 help="loss type for reconstruction loss: 'l1' or 'l2' (default: 'l1')",
+                                 choices=['l1', 'l2'],
+                                 default='l1')
+        self.parser.add_argument("--hfd_grad_threshold",
+                                 type=float,
+                                 help="gradient threshold for HF mask filtering (default: 0.01)",
+                                 default=0.01)
+
         # TRAINING options
         self.parser.add_argument("--model_name",
                                  type=str,
