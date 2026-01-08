@@ -131,6 +131,13 @@ class MonodepthOptions:
         self.parser.add_argument("--enable_seq_inputs",
                                  help="if set, enables sequential multi-frame input mode (requires depth_model_type=depthanything3)",
                                  action="store_true")
+        self.parser.add_argument("--enable_source_depths_estimation",
+                                 help="if set, enables source frame depth prediction for depth consistency loss (requires enable_seq_inputs)",
+                                 action="store_true")
+        self.parser.add_argument("--depth_consistency_weight",
+                                 type=float,
+                                 help="weight for depth consistency loss (default: 0.1)",
+                                 default=0.0)
 
         # TRAINING options
         self.parser.add_argument("--model_name",

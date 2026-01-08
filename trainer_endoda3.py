@@ -376,119 +376,121 @@ class EndoDepthAnything3NetWrapper(torch.nn.Module):
                         available_keys = list(output.keys()) if hasattr(output, 'keys') else [k for k in dir(output) if not k.startswith('_')]
                         raise AttributeError(f"Multi-scale output {disp_key} not found in model output. "
                                            f"Available keys: {available_keys}")
-        elif self.da3_depth_regression_target == "depth2disp":
-            depth = output.depth
-            assert depth.dim() == 4, f"depth shape: {depth.shape}"
-            if single_frame_input:
-                assert depth.shape[1] == 1, f"depth shape: {depth.shape}"
+        else:
+            if self.da3_depth_regression_target == "depth2disp":
+                depth = output.depth
+                assert depth.dim() == 4, f"depth shape: {depth.shape}"
+                if single_frame_input:
+                    assert depth.shape[1] == 1, f"depth shape: {depth.shape}"
+                
+                # For multi-frame input with ref_view_strategy='first', extract depth for target frame (frame 0)
+                if not single_frame_input:
+                    # Ensure ref_view_strategy is 'first' for deterministic frame 0 extraction
+                    assert self.model.ref_view_strategy == "first", \
+                        f"ref_view_strategy must be 'first' for multi-frame depth extraction, got {self.model.ref_view_strategy}"
+                    # Extract depth for frame 0 (first frame in spatial dimension)
+                    depth = depth[:, 0:1, :, :]  # (B, 1, H, W) - keep dim for consistency
+
+                # Exp before 19.Dec improperly use self.min_depth
+                # depth_clamped = torch.clamp(depth, min=self.min_depth, max=self.max_depth)
+                depth_clamped = torch.clamp(depth, min=MIN_DEPTH, max=MAX_DEPTH)
+                disp = 1.0 / depth_clamped # (B, 1, H, W) for multi-frame, (B, S, H, W) for single-frame
             
-            # For multi-frame input with ref_view_strategy='first', extract depth for target frame (frame 0)
-            if not single_frame_input:
-                # Ensure ref_view_strategy is 'first' for deterministic frame 0 extraction
-                assert self.model.ref_view_strategy == "first", \
-                    f"ref_view_strategy must be 'first' for multi-frame depth extraction, got {self.model.ref_view_strategy}"
-                # Extract depth for frame 0 (first frame in spatial dimension)
-                depth = depth[:, 0:1, :, :]  # (B, 1, H, W) - keep dim for consistency
+                # Interpolate to match input image size if needed
+                if disp.shape[-2:] != (256, 320):
+                    disp = F.interpolate(disp, size=(256, 320), mode="bilinear", align_corners=True)
 
-            # Exp before 19.Dec improperly use self.min_depth
-            # depth_clamped = torch.clamp(depth, min=self.min_depth, max=self.max_depth)
-            depth_clamped = torch.clamp(depth, min=MIN_DEPTH, max=MAX_DEPTH)
-            disp = 1.0 / depth_clamped # (B, 1, H, W) for multi-frame, (B, S, H, W) for single-frame
-        
-            # Interpolate to match input image size if needed
-            if disp.shape[-2:] != (256, 320):
-                disp = F.interpolate(disp, size=(256, 320), mode="bilinear", align_corners=True)
+                # Create multi-scale disp outputs
+                outputs = {}
+                for scale in self.scales:
+                    if scale == 0:
+                        outputs[("disp", scale)] = disp
+                        outputs[("depth_native", 0, scale)] = depth
 
-            # Create multi-scale disp outputs
-            outputs = {}
-            for scale in self.scales:
-                if scale == 0:
-                    outputs[("disp", scale)] = disp
-                    outputs[("depth_native", 0, scale)] = depth
+                    else:
+                        h_scale = H // (2 ** scale)
+                        w_scale = W // (2 ** scale)
+                        disp_scale = F.interpolate(disp, size=(h_scale, w_scale), 
+                                                mode="bilinear", align_corners=True)
+                        outputs[("disp", scale)] = disp_scale
 
-                else:
-                    h_scale = H // (2 ** scale)
-                    w_scale = W // (2 ** scale)
-                    disp_scale = F.interpolate(disp, size=(h_scale, w_scale), 
-                                            mode="bilinear", align_corners=True)
-                    outputs[("disp", scale)] = disp_scale
+                        depth_scale = F.interpolate(depth, size=(h_scale, w_scale), 
+                                                mode="bilinear", align_corners=True)
+                        outputs[("depth_native", 0,scale)] = depth_scale
 
-                    depth_scale = F.interpolate(depth, size=(h_scale, w_scale), 
-                                            mode="bilinear", align_corners=True)
-                    outputs[("depth_native", 0,scale)] = depth_scale
+            elif self.da3_depth_regression_target == "depth2disp_v2":
+                depth = output.depth
+                assert depth.dim() == 4, f"depth shape: {depth.shape}"
+                if single_frame_input:
+                    assert depth.shape[1] == 1, f"depth shape: {depth.shape}"
+                
+                # For multi-frame input with ref_view_strategy='first', extract depth for target frame (frame 0)
+                if not single_frame_input:
+                    # Ensure ref_view_strategy is 'first' for deterministic frame 0 extraction
+                    assert self.model.ref_view_strategy == "first", \
+                        f"ref_view_strategy must be 'first' for multi-frame depth extraction, got {self.model.ref_view_strategy}"
+                    # Extract depth for frame 0 (first frame in spatial dimension)
+                    depth = depth[:, 0:1, :, :]  # (B, 1, H, W) - keep dim for consistency
 
-        elif self.da3_depth_regression_target == "depth2disp_v2":
-            depth = output.depth
-            assert depth.dim() == 4, f"depth shape: {depth.shape}"
-            if single_frame_input:
-                assert depth.shape[1] == 1, f"depth shape: {depth.shape}"
+                # Convert depth to disparity using depth2disp_v2 (no hard clamp, per-batch normalization + sigmoid)
+                disp = self._depth_to_disp_v2(depth)  # (B, 1, H, W) for multi-frame, (B, S, H, W) for single-frame
             
-            # For multi-frame input with ref_view_strategy='first', extract depth for target frame (frame 0)
-            if not single_frame_input:
-                # Ensure ref_view_strategy is 'first' for deterministic frame 0 extraction
-                assert self.model.ref_view_strategy == "first", \
-                    f"ref_view_strategy must be 'first' for multi-frame depth extraction, got {self.model.ref_view_strategy}"
-                # Extract depth for frame 0 (first frame in spatial dimension)
-                depth = depth[:, 0:1, :, :]  # (B, 1, H, W) - keep dim for consistency
+                # Interpolate to match input image size if needed
+                if disp.shape[-2:] != (256, 320):
+                    disp = F.interpolate(disp, size=(256, 320), mode="bilinear", align_corners=True)
 
-            # Convert depth to disparity using depth2disp_v2 (no hard clamp, per-batch normalization + sigmoid)
-            disp = self._depth_to_disp_v2(depth)  # (B, 1, H, W) for multi-frame, (B, S, H, W) for single-frame
-        
-            # Interpolate to match input image size if needed
-            if disp.shape[-2:] != (256, 320):
-                disp = F.interpolate(disp, size=(256, 320), mode="bilinear", align_corners=True)
+                # Create multi-scale disp outputs
+                outputs = {}
+                for scale in self.scales:
+                    if scale == 0:
+                        outputs[("disp", scale)] = disp
+                        outputs[("depth_native",0, scale)] = depth
+                    else:
+                        h_scale = H // (2 ** scale)
+                        w_scale = W // (2 ** scale)
+                        disp_scale = F.interpolate(disp, size=(h_scale, w_scale), 
+                                                mode="bilinear", align_corners=True)
+                        outputs[("disp", scale)] = disp_scale
 
-            # Create multi-scale disp outputs
-            outputs = {}
-            for scale in self.scales:
-                if scale == 0:
-                    outputs[("disp", scale)] = disp
-                    outputs[("depth_native",0, scale)] = depth
-                else:
-                    h_scale = H // (2 ** scale)
-                    w_scale = W // (2 ** scale)
-                    disp_scale = F.interpolate(disp, size=(h_scale, w_scale), 
-                                            mode="bilinear", align_corners=True)
-                    outputs[("disp", scale)] = disp_scale
+                        depth_scale = F.interpolate(depth, size=(h_scale, w_scale), 
+                                                mode="bilinear", align_corners=True)
+                        outputs[("depth_native", 0, scale)] = depth_scale
 
-                    depth_scale = F.interpolate(depth, size=(h_scale, w_scale), 
-                                            mode="bilinear", align_corners=True)
-                    outputs[("depth_native", 0, scale)] = depth_scale
+            elif self.da3_depth_regression_target == "depth2disp_v3":
+                assert NotImplementedError("depth2disp_v3 is not implemented yet")
+            elif self.da3_depth_regression_target == "disp":
+                disp = output.disp
+                
+                assert disp.dim() == 4, f"Expected disp shape (B, S, H, W), but got shape: {disp.shape}"
 
-        elif self.da3_depth_regression_target == "depth2disp_v3":
-            assert NotImplementedError("depth2disp_v3 is not implemented yet")
-        elif self.da3_depth_regression_target == "disp":
-            disp = output.disp
+                if single_frame_input:
+                    assert disp.shape[1] == 1, f"disp shape: {disp.shape}"
+                
+                # For multi-frame input with ref_view_strategy='first', extract disp for target frame (frame 0)
+                if not single_frame_input:
+                    # Ensure ref_view_strategy is 'first' for deterministic frame 0 extraction
+                    assert self.model.ref_view_strategy == "first", \
+                        f"ref_view_strategy must be 'first' for multi-frame disp extraction, got {self.model.ref_view_strategy}"
+                    # Extract disp for frame 0 (first frame in spatial dimension)
+                    disp = disp[:, 0:1, :, :]  # (B, 1, H, W) - keep dim for consistency
+                
+                # Interpolate to match input image size if needed
+                if disp.shape[-2:] != (256, 320):
+                    disp = F.interpolate(disp, size=(256, 320), mode="bilinear", align_corners=True)
+                
+                # Create multi-scale disp outputs
+                outputs = {}
+                for scale in self.scales:
+                    if scale == 0:
+                        outputs[("disp", scale)] = disp
+                    else:
+                        h_scale = H // (2 ** scale)
+                        w_scale = W // (2 ** scale)
+                        disp_scale = F.interpolate(disp, size=(h_scale, w_scale), 
+                                                mode="bilinear", align_corners=True)
+                        outputs[("disp", scale)] = disp_scale
             
-            assert disp.dim() == 4, f"Expected disp shape (B, S, H, W), but got shape: {disp.shape}"
-
-            if single_frame_input:
-                assert disp.shape[1] == 1, f"disp shape: {disp.shape}"
             
-            # For multi-frame input with ref_view_strategy='first', extract disp for target frame (frame 0)
-            if not single_frame_input:
-                # Ensure ref_view_strategy is 'first' for deterministic frame 0 extraction
-                assert self.model.ref_view_strategy == "first", \
-                    f"ref_view_strategy must be 'first' for multi-frame disp extraction, got {self.model.ref_view_strategy}"
-                # Extract disp for frame 0 (first frame in spatial dimension)
-                disp = disp[:, 0:1, :, :]  # (B, 1, H, W) - keep dim for consistency
-            
-            # Interpolate to match input image size if needed
-            if disp.shape[-2:] != (256, 320):
-                disp = F.interpolate(disp, size=(256, 320), mode="bilinear", align_corners=True)
-            
-            # Create multi-scale disp outputs
-            outputs = {}
-            for scale in self.scales:
-                if scale == 0:
-                    outputs[("disp", scale)] = disp
-                else:
-                    h_scale = H // (2 ** scale)
-                    w_scale = W // (2 ** scale)
-                    disp_scale = F.interpolate(disp, size=(h_scale, w_scale), 
-                                              mode="bilinear", align_corners=True)
-                    outputs[("disp", scale)] = disp_scale
-        
         # Format intrinsics and pose outputs if available
         if hasattr(output, 'intrinsics') and output.intrinsics is not None:
             intrinsics = output.intrinsics
@@ -589,6 +591,236 @@ class EndoDepthAnything3NetWrapper(torch.nn.Module):
             return torch.stack([x, y, z], dim=1)  # (B, 3)
         else:
             raise ValueError(f"Unsupported rotation representation: {rot_representation}")
+    
+    def extract_depth_for_frame(self, raw_model_output, frame_id, index_in_spatial_S, B, H, W, single_frame_input=False):
+        """
+        Extract depth/disp outputs for a specific frame from already-computed raw model output.
+        
+        Args:
+            raw_model_output: Raw output from EndoDepthAnything3Net model
+            frame_id: Frame ID for output keys
+            index_in_spatial_S: Index in spatial dimension S for frame_id (frame 0 is at index 0)
+            B, H, W: Batch size, height, width
+            single_frame_input: Whether input was single frame (if True, index_in_spatial_S should be 0)
+            
+        Returns:
+            Dictionary with depth outputs for the specified frame_id:
+            - ("disp", frame_id, scale) for each scale
+            - ("depth_native", frame_id, scale) for each scale (if applicable)
+        """
+        output = raw_model_output
+        outputs = {}
+        
+        # Check if multi-scale output is enabled
+        is_multi_scale = (isinstance(self.model.head, DPTMultiScale) and self.model.head.enable_multi_scale) or \
+                         (isinstance(self.model.head, DualDPTMultiScale) and self.model.head.enable_multi_scale)
+        
+        # Handle depth output shape (squeeze last dim if needed)
+        if not is_multi_scale:
+            if isinstance(self.model.head, DPT) or isinstance(self.model.head, DPTMultiScale):
+                if self.model.head.head_main == "depth":
+                    output.depth = output.depth.squeeze(-1)
+                elif self.model.head.head_main == "disp":
+                    output.disp = output.disp.squeeze(-1)
+        
+        head_main = self.model.head.head_main
+        
+        if is_multi_scale:
+            # Multi-scale output: extract for specific frame
+            if self.da3_depth_regression_target == "depth2disp":
+                for scale_idx in range(4):
+                    scale_name = str(scale_idx)
+                    depth_key = f"{head_main}_{scale_name}"
+                    
+                    if depth_key in output or hasattr(output, depth_key):
+                        depth = output[depth_key] if depth_key in output else getattr(output, depth_key)  # (B, S, H, W)
+                        assert depth.dim() == 4, f"depth_{scale_name} shape: {depth.shape}"
+                        
+                        # Extract depth for specific frame
+                        if not single_frame_input:
+                            assert self.model.ref_view_strategy == "first", \
+                                f"ref_view_strategy must be 'first' for multi-frame depth extraction"
+                            assert 0 <= index_in_spatial_S < depth.shape[1], \
+                                f"index_in_spatial_S ({index_in_spatial_S}) out of range [0, {depth.shape[1]})"
+                            depth = depth[:, index_in_spatial_S:index_in_spatial_S+1, :, :]  # (B, 1, H, W)
+                        
+                        depth_clamped = torch.clamp(depth, min=MIN_DEPTH, max=MAX_DEPTH)
+                        
+                        if scale_idx in self.scales:
+                            if scale_idx != 0:
+                                depth = F.interpolate(depth, size=(H, W), mode="bilinear", align_corners=True)
+                            outputs[("depth_native", frame_id, scale_idx)] = depth
+                        
+                        disp = 1.0 / depth_clamped
+                        if scale_idx in self.scales:
+                            outputs[("disp", frame_id, scale_idx)] = disp
+                            
+            elif self.da3_depth_regression_target == "depth2disp_v2":
+                for scale_idx in range(4):
+                    scale_name = str(scale_idx)
+                    depth_key = f"{head_main}_{scale_name}"
+                    
+                    if depth_key in output or hasattr(output, depth_key):
+                        depth = output[depth_key] if depth_key in output else getattr(output, depth_key)  # (B, S, H, W)
+                        assert depth.dim() == 4, f"depth_{scale_name} shape: {depth.shape}"
+                        
+                        # Extract depth for specific frame
+                        if not single_frame_input:
+                            assert self.model.ref_view_strategy == "first", \
+                                f"ref_view_strategy must be 'first' for multi-frame depth extraction"
+                            assert 0 <= index_in_spatial_S < depth.shape[1], \
+                                f"index_in_spatial_S ({index_in_spatial_S}) out of range [0, {depth.shape[1]})"
+                            depth = depth[:, index_in_spatial_S:index_in_spatial_S+1, :, :]  # (B, 1, H, W)
+                        
+                        if scale_idx in self.scales:
+                            if scale_idx != 0:
+                                depth = F.interpolate(depth, size=(H, W), mode="bilinear", align_corners=True)
+                            outputs[("depth_native", frame_id, scale_idx)] = depth
+                        
+                        disp = self._depth_to_disp_v2(depth)
+                        if scale_idx in self.scales:
+                            outputs[("disp", frame_id, scale_idx)] = disp
+                            
+            elif self.da3_depth_regression_target == "depth2disp_v3":
+                for scale_idx in range(4):
+                    scale_name = str(scale_idx)
+                    depth_key = f"{head_main}_{scale_name}"
+                    
+                    if depth_key in output or hasattr(output, depth_key):
+                        depth_raw = output[depth_key] if depth_key in output else getattr(output, depth_key)  # (B, S, H, W)
+                        assert depth_raw.dim() == 4, f"depth_{scale_name} shape: {depth_raw.shape}"
+                        
+                        # Extract depth for specific frame
+                        if not single_frame_input:
+                            assert self.model.ref_view_strategy == "first", \
+                                f"ref_view_strategy must be 'first' for multi-frame depth extraction"
+                            assert 0 <= index_in_spatial_S < depth_raw.shape[1], \
+                                f"index_in_spatial_S ({index_in_spatial_S}) out of range [0, {depth_raw.shape[1]})"
+                            depth_raw = depth_raw[:, index_in_spatial_S:index_in_spatial_S+1, :, :]  # (B, 1, H, W)
+                        
+                        # Scale-free depth processing
+                        B_frame = depth_raw.shape[0]
+                        depth_flat = depth_raw.view(B_frame, -1)
+                        scale = depth_flat.median(dim=1)[0].view(B_frame, 1, 1, 1)
+                        scale = scale.clamp(min=1e-6)
+                        scale_detached = scale.detach()
+                        depth_norm = depth_raw / scale_detached
+                        depth = depth_norm * scale_detached
+                        
+                        if scale_idx in self.scales:
+                            if scale_idx != 0:
+                                depth = F.interpolate(depth, size=(H, W), mode="bilinear", align_corners=True)
+                            outputs[("depth_native", frame_id, scale_idx)] = depth
+                        
+                        disp = 1.0 / (depth_norm + 1e-6)
+                        if scale_idx in self.scales:
+                            outputs[("disp", frame_id, scale_idx)] = disp
+                            
+            elif self.da3_depth_regression_target == "disp":
+                for scale_idx in range(4):
+                    scale_name = str(scale_idx)
+                    disp_key = f"{head_main}_{scale_name}"
+                    
+                    if disp_key in output or hasattr(output, disp_key):
+                        disp = output[disp_key] if disp_key in output else getattr(output, disp_key)  # (B, S, H, W)
+                        assert disp.dim() == 4, f"Expected disp_{scale_name} shape (B, S, H, W), but got shape: {disp.shape}"
+                        
+                        # Extract disp for specific frame
+                        if not single_frame_input:
+                            assert self.model.ref_view_strategy == "first", \
+                                f"ref_view_strategy must be 'first' for multi-frame disp extraction"
+                            assert 0 <= index_in_spatial_S < disp.shape[1], \
+                                f"index_in_spatial_S ({index_in_spatial_S}) out of range [0, {disp.shape[1]})"
+                            disp = disp[:, index_in_spatial_S:index_in_spatial_S+1, :, :]  # (B, 1, H, W)
+                        
+                        if scale_idx in self.scales:
+                            outputs[("disp", frame_id, scale_idx)] = disp
+        else:
+            # Single-scale output
+            if self.da3_depth_regression_target == "depth2disp":
+                depth = output.depth
+                assert depth.dim() == 4, f"depth shape: {depth.shape}"
+                
+                # Extract depth for specific frame
+                if not single_frame_input:
+                    assert self.model.ref_view_strategy == "first", \
+                        f"ref_view_strategy must be 'first' for multi-frame depth extraction"
+                    assert 0 <= index_in_spatial_S < depth.shape[1], \
+                        f"index_in_spatial_S ({index_in_spatial_S}) out of range [0, {depth.shape[1]})"
+                    depth = depth[:, index_in_spatial_S:index_in_spatial_S+1, :, :]  # (B, 1, H, W)
+                
+                depth_clamped = torch.clamp(depth, min=MIN_DEPTH, max=MAX_DEPTH)
+                disp = 1.0 / depth_clamped
+                
+                if disp.shape[-2:] != (256, 320):
+                    disp = F.interpolate(disp, size=(256, 320), mode="bilinear", align_corners=True)
+                
+                for scale in self.scales:
+                    if scale == 0:
+                        outputs[("disp", frame_id, scale)] = disp
+                        outputs[("depth_native", frame_id, scale)] = depth
+                    else:
+                        h_scale = H // (2 ** scale)
+                        w_scale = W // (2 ** scale)
+                        disp_scale = F.interpolate(disp, size=(h_scale, w_scale), mode="bilinear", align_corners=True)
+                        outputs[("disp", frame_id, scale)] = disp_scale
+                        depth_scale = F.interpolate(depth, size=(h_scale, w_scale), mode="bilinear", align_corners=True)
+                        outputs[("depth_native", frame_id, scale)] = depth_scale
+                        
+            elif self.da3_depth_regression_target == "depth2disp_v2":
+                depth = output.depth
+                assert depth.dim() == 4, f"depth shape: {depth.shape}"
+                
+                # Extract depth for specific frame
+                if not single_frame_input:
+                    assert self.model.ref_view_strategy == "first", \
+                        f"ref_view_strategy must be 'first' for multi-frame depth extraction"
+                    assert 0 <= index_in_spatial_S < depth.shape[1], \
+                        f"index_in_spatial_S ({index_in_spatial_S}) out of range [0, {depth.shape[1]})"
+                    depth = depth[:, index_in_spatial_S:index_in_spatial_S+1, :, :]  # (B, 1, H, W)
+                
+                disp = self._depth_to_disp_v2(depth)
+                
+                if disp.shape[-2:] != (256, 320):
+                    disp = F.interpolate(disp, size=(256, 320), mode="bilinear", align_corners=True)
+                
+                for scale in self.scales:
+                    if scale == 0:
+                        outputs[("disp", frame_id, scale)] = disp
+                        outputs[("depth_native", frame_id, scale)] = depth
+                    else:
+                        h_scale = H // (2 ** scale)
+                        w_scale = W // (2 ** scale)
+                        disp_scale = F.interpolate(disp, size=(h_scale, w_scale), mode="bilinear", align_corners=True)
+                        outputs[("disp", frame_id, scale)] = disp_scale
+                        depth_scale = F.interpolate(depth, size=(h_scale, w_scale), mode="bilinear", align_corners=True)
+                        outputs[("depth_native", frame_id, scale)] = depth_scale
+                        
+            elif self.da3_depth_regression_target == "disp":
+                disp = output.disp
+                assert disp.dim() == 4, f"Expected disp shape (B, S, H, W), but got shape: {disp.shape}"
+                
+                # Extract disp for specific frame
+                if not single_frame_input:
+                    assert self.model.ref_view_strategy == "first", \
+                        f"ref_view_strategy must be 'first' for multi-frame disp extraction"
+                    assert 0 <= index_in_spatial_S < disp.shape[1], \
+                        f"index_in_spatial_S ({index_in_spatial_S}) out of range [0, {disp.shape[1]})"
+                    disp = disp[:, index_in_spatial_S:index_in_spatial_S+1, :, :]  # (B, 1, H, W)
+                
+                if disp.shape[-2:] != (256, 320):
+                    disp = F.interpolate(disp, size=(256, 320), mode="bilinear", align_corners=True)
+                
+                for scale in self.scales:
+                    if scale == 0:
+                        outputs[("disp", frame_id, scale)] = disp
+                    else:
+                        h_scale = H // (2 ** scale)
+                        w_scale = W // (2 ** scale)
+                        disp_scale = F.interpolate(disp, size=(h_scale, w_scale), mode="bilinear", align_corners=True)
+                        outputs[("disp", frame_id, scale)] = disp_scale
+        
+        return outputs
     
     def extract_pose_from_output(self, raw_model_output, frame_id, index_in_spatial_S, B, H, W):
         """
@@ -1911,6 +2143,114 @@ class Trainer:
             # shared by endoDAC and endoda3_naive_single_input
             # Original behavior: single frame input
             outputs = self.models["depth_model"](inputs["color_aug", 0, 0])
+            cached_raw_model_output = None
+
+        # Extract depth for source frames if enabled (for depth consistency loss)
+        enable_source_depths_estimation = getattr(self.opt, 'enable_source_depths_estimation', False)
+        if enable_source_depths_estimation:
+            if self.enable_seq_inputs and cached_raw_model_output is not None:
+                # Case 1: enable_seq_inputs is True - extract depth from cached multi-frame output
+                B = inputs[("color_aug", 0, 0)].shape[0]
+                H, W = inputs[("color_aug", 0, 0)].shape[2], inputs[("color_aug", 0, 0)].shape[3]
+                
+                for frame_id in self.current_frame_ids[1:]:
+                    if frame_id == "s":
+                        continue  # Skip stereo frame
+                    
+                    # Get index in spatial dimension S for this frame_id
+                    if frame_id in self.current_frame_ids:
+                        index_in_spatial_S = self.current_frame_ids.index(frame_id)
+                    else:
+                        continue  # Skip if frame_id not in current_frame_ids
+                    
+                    # Extract depth outputs for this frame from cached output
+                    frame_depth_outputs = self.models["depth_model"].extract_depth_for_frame(
+                        cached_raw_model_output, 
+                        frame_id=frame_id,
+                        index_in_spatial_S=index_in_spatial_S,
+                        B=B, H=H, W=W,
+                        single_frame_input=False
+                    )
+                    
+                    # Store outputs with frame_id in key
+                    for key, value in frame_depth_outputs.items():
+                        outputs[key] = value
+                    
+                    # Create outputs[("depth", frame_id, scale)] for each scale
+                    for scale in self.opt.scales:
+                        # Use depth_native if available, otherwise convert from disp
+                        if ("depth_native", frame_id, scale) in outputs:
+                            source_depth = outputs[("depth_native", frame_id, scale)]
+                            outputs[("depth", frame_id, scale)] = source_depth
+                        elif ("disp", frame_id, scale) in outputs:
+                            # Convert disp to depth
+                            source_disp = outputs[("disp", frame_id, scale)]
+                            if not self.opt.v1_multiscale:
+                                source_disp = F.interpolate(
+                                    source_disp, [self.opt.height, self.opt.width], 
+                                    mode="bilinear", align_corners=True)
+                            _, source_depth = disp_to_depth_v2(
+                                source_disp, self.opt.min_depth, self.opt.max_depth, 
+                                is_scaled_disp=(self.opt.da3_depth_regression_target not in ["disp"]))
+                            outputs[("depth", frame_id, scale)] = source_depth
+            else:
+                # Case 2: enable_seq_inputs is False - predict depth for each source frame separately
+                for frame_id in self.current_frame_ids[1:]:
+                    if frame_id == "s":
+                        continue  # Skip stereo frame
+                    
+                    # Predict depth for source frame using same depth network
+                    source_color = inputs[("color_aug", frame_id, 0)]
+                    source_depth_output = self.models["depth_model"](source_color)
+                    
+                    # Extract depth outputs for this frame (same logic as target frame)
+                    for scale in self.opt.scales:
+                        source_scale = scale if self.opt.v1_multiscale else 0
+                        
+                        # Extract depth based on model type (same as target frame extraction)
+                        if self.opt.depth_model_type == 'endodac' or \
+                            (self.opt.depth_model_type == "depthanything3" and self.opt.da3_depth_regression_target in ["disp"]):
+                            # Extract disparity and convert to depth
+                            source_disp = source_depth_output[("disp", scale)]
+                            if not self.opt.v1_multiscale:
+                                source_disp = F.interpolate(
+                                    source_disp, [self.opt.height, self.opt.width], 
+                                    mode="bilinear", align_corners=True)
+                            _, source_depth = disp_to_depth_v2(
+                                source_disp, self.opt.min_depth, self.opt.max_depth, 
+                                is_scaled_disp=False)
+                        else:
+                            # Extract native depth
+                            assert self.opt.depth_model_type == 'depthanything3'
+                            if ("depth_native", 0, scale) in source_depth_output:
+                                if self.opt.da3_depth_regression_target in ["depth2disp_v3"]:
+                                    source_depth = source_depth_output[("depth_native", 0, scale)]
+                                else:
+                                    source_disp = source_depth_output[("disp", scale)]
+                                    if not self.opt.v1_multiscale:
+                                        source_disp = F.interpolate(
+                                            source_disp, [self.opt.height, self.opt.width], 
+                                            mode="bilinear", align_corners=True)
+                                    _, source_depth = disp_to_depth_v2(
+                                        source_disp, self.opt.min_depth, self.opt.max_depth, 
+                                        is_scaled_disp=True)
+                            else:
+                                # Fallback: convert from disp
+                                source_disp = source_depth_output[("disp", scale)]
+                                if not self.opt.v1_multiscale:
+                                    source_disp = F.interpolate(
+                                        source_disp, [self.opt.height, self.opt.width], 
+                                        mode="bilinear", align_corners=True)
+                                _, source_depth = disp_to_depth_v2(
+                                    source_disp, self.opt.min_depth, self.opt.max_depth, 
+                                    is_scaled_disp=(self.opt.da3_depth_regression_target not in ["disp"]))
+                        
+                        # Store outputs with frame_id in key
+                        outputs[("depth", frame_id, scale)] = source_depth
+                        if ("depth_native", 0, scale) in source_depth_output:
+                            outputs[("depth_native", frame_id, scale)] = source_depth_output[("depth_native", 0, scale)]
+                        if ("disp", scale) in source_depth_output:
+                            outputs[("disp", frame_id, scale)] = source_depth_output[("disp", scale)]
 
         if self.use_pose_net:
             outputs.update(self.predict_poses(inputs, None, cached_depth_output=None, cached_raw_model_output=cached_raw_model_output))
@@ -2235,6 +2575,7 @@ class Trainer:
                 _, depth = disp_to_depth_v2(disp, self.opt.min_depth, self.opt.max_depth, 
                                             is_scaled_disp=False)
                 outputs[("depth", 0, scale)] = depth # only used for metric computation;
+                # if enable_source_depths_estimation:
             else:
                 # the native target of head is depth
                 assert self.opt.depth_model_type == 'depthanything3'
@@ -2309,6 +2650,26 @@ class Trainer:
                 pix_coords = self.project_3d[source_scale](
                     cam_points, cam_K_3x3, T_3x4)
                 outputs[("sample", frame_id, scale)] = pix_coords
+
+                # Compute depth consistency tensors if source depth estimation is enabled
+                # Both tensors are in source camera frame: computed_depth is geometry-computed 
+                # from target depth via backprojection+transformation, depth_src_warped is 
+                # network-predicted source depth sampled at target pixel locations via grid_sample
+                # (grid_sample is required because we need to compare depths at the same pixel locations)
+                enable_source_depths_estimation = getattr(self.opt, 'enable_source_depths_estimation', False)
+                if enable_source_depths_estimation:
+                    B, _, H, W = depth.shape
+                    # Extract z-coordinate (depth) from 3D points in source camera frame
+                    outputs[("computed_depth", frame_id, scale)] = cam_points[:, 2, :].unsqueeze(1).view(B, 1, H, W)
+                    # Warp predicted source depth to target pixel locations
+                    # We store depth with scale key (not source_scale), so use scale for lookup
+                    if ("depth", frame_id, scale) in outputs:
+                        outputs[("depth_src_warped", frame_id, scale)] = F.grid_sample(
+                            outputs[("depth", frame_id, scale)],
+                            outputs[("sample", frame_id, scale)],
+                            padding_mode="border",
+                            align_corners=True)
+
                 # Compute pose_flow for visual inspection
                 pose_flow_2d = self._compute_pose_flow(pix_coords)
                 outputs[("pose_flow", "high", frame_id, scale)] = pose_flow_2d#.detach()
@@ -2344,8 +2705,8 @@ class Trainer:
                     align_corners=True)
 
                 # Reuse normalized K and T for position_depth (same shape requirement)
-                outputs[("position_depth", scale, frame_id)] = self.position_depth[source_scale](
-                        cam_points, cam_K_3x3, T_3x4)
+                # outputs[("position_depth", scale, frame_id)] = self.position_depth[source_scale](
+                        # cam_points, cam_K_3x3, T_3x4)
                 
                 # #/////////////IID style masking: compute backward warp and occlusion mask/////////////
                 # # Compute inverse transformation: from source (frame_id) to target (0)
@@ -2408,6 +2769,7 @@ class Trainer:
             loss = 0
 
             loss_reprojection = 0
+            loss_depth_consistency = 0
             loss_explict_geo = 0 #optic flow based
             debug_flow_based_geo = True
             # debug_flow_based_geo = False
@@ -2481,6 +2843,30 @@ class Trainer:
                 loss_reprojection += (
                     self.compute_reprojection_loss(outputs[("color", frame_id, scale)], supervision_target) * occu_mask_backward).sum() / occu_mask_backward.sum()  
                 
+                # Depth consistency loss: compare geometry-computed depth with network-predicted depth
+                # Both depths are in source camera frame: computed_depth from geometry, depth_src_warped from network
+                if self.opt.enable_source_depths_estimation:
+                    if ("computed_depth", frame_id, scale) in outputs and ("depth_src_warped", frame_id, scale) in outputs:
+                        D_geom = outputs[("computed_depth", frame_id, scale)]
+                        D_pred = outputs[("depth_src_warped", frame_id, scale)]
+                        
+                        # Minimal validity mask: both depths must be positive
+                        valid_mask = (D_geom > 0) & (D_pred > 0)
+                        # Reuse photometric mask if available (occu_mask_backward)
+                        # Ensure mask has same shape as depths
+                        photo_mask = occu_mask_backward
+                        if photo_mask.dim() == 3:
+                            photo_mask = photo_mask.unsqueeze(1)
+                        photo_mask = (photo_mask > 0.5).to(valid_mask.device).to(valid_mask.dtype)
+                        valid_mask = valid_mask & photo_mask
+                        
+                        if valid_mask.sum() > 0:
+                            # Compute per-pixel depth disagreement: |D_geom - D_pred| / (D_geom + D_pred + eps)
+                            diff_depth = torch.abs(D_geom - D_pred) / (D_geom + D_pred + 1e-7)
+                            # Reduce as mean over valid pixels
+                            loss_depth_consistency += (diff_depth * valid_mask).sum() / valid_mask.sum()
+                    else:
+                        assert False, "No valid depth pixels for depth consistency loss at scale {scale} and frame {frame_id}"
                 loss_transform += (
                     torch.abs(outputs[("refined", scale, frame_id)] - outputs[("registration", 0, frame_id)].detach()).mean(1, True) * occu_mask_backward).sum() / occu_mask_backward.sum()
                 loss_cvt += get_smooth_bright(
@@ -2496,6 +2882,7 @@ class Trainer:
             losses["loss_transform/{}".format(scale)] = loss_transform / 2.0
             losses["loss_cvt/{}".format(scale)] = loss_cvt / 2.0
             losses["loss_smooth/{}".format(scale)] = smooth_loss / (2 ** scale)
+            losses["loss_depth_consistency/{}".format(scale)] = loss_depth_consistency / max(len(self.current_frame_ids[1:]), 1)
 
             # Apply weights and add to total loss
             loss += self.opt.photo_reprojection * (loss_reprojection / 2.0)
@@ -2508,6 +2895,8 @@ class Trainer:
             loss += self.opt.transform_constraint * (loss_transform / 2.0)
             loss += self.opt.transform_smoothness * (loss_cvt / 2.0) 
             loss += self.opt.disparity_smoothness * smooth_loss / (2 ** scale)
+            # Add depth consistency loss with weight (default 0.1)
+            loss += self.opt.depth_consistency_weight * loss_depth_consistency
 
             total_loss += loss
             losses["loss/{}".format(scale)] = loss
@@ -2663,6 +3052,98 @@ class Trainer:
             outputs = self.models["depth_model"](inputs["color_aug", 0, 0])
             cached_raw_model_output = None
             cached_depth_output = None
+
+        # Extract depth for source frames if enabled (for depth consistency loss)
+        enable_source_depths_estimation = getattr(self.opt, 'enable_source_depths_estimation', False)
+        if enable_source_depths_estimation:
+            if self.enable_seq_inputs and cached_raw_model_output is not None:
+                # Case 1: enable_seq_inputs is True - extract depth from cached multi-frame output
+                B = inputs[("color_aug", 0, 0)].shape[0]
+                H, W = inputs[("color_aug", 0, 0)].shape[2], inputs[("color_aug", 0, 0)].shape[3]
+                
+                for frame_id in self.current_frame_ids[1:]:
+                    if frame_id == "s":
+                        continue  # Skip stereo frame
+                    
+                    if frame_id in self.current_frame_ids:
+                        index_in_spatial_S = self.current_frame_ids.index(frame_id)
+                    else:
+                        continue
+                    
+                    frame_depth_outputs = self.models["depth_model"].extract_depth_for_frame(
+                        cached_raw_model_output, 
+                        frame_id=frame_id,
+                        index_in_spatial_S=index_in_spatial_S,
+                        B=B, H=H, W=W,
+                        single_frame_input=False
+                    )
+                    
+                    for key, value in frame_depth_outputs.items():
+                        outputs[key] = value
+                    
+                    for scale in self.opt.scales:
+                        if ("depth_native", frame_id, scale) in outputs:
+                            source_depth = outputs[("depth_native", frame_id, scale)]
+                            outputs[("depth", frame_id, scale)] = source_depth
+                        elif ("disp", frame_id, scale) in outputs:
+                            source_disp = outputs[("disp", frame_id, scale)]
+                            if not self.opt.v1_multiscale:
+                                source_disp = F.interpolate(
+                                    source_disp, [self.opt.height, self.opt.width], 
+                                    mode="bilinear", align_corners=True)
+                            _, source_depth = disp_to_depth_v2(
+                                source_disp, self.opt.min_depth, self.opt.max_depth, 
+                                is_scaled_disp=(self.opt.da3_depth_regression_target not in ["disp"]))
+                            outputs[("depth", frame_id, scale)] = source_depth
+            else:
+                # Case 2: enable_seq_inputs is False - predict depth for each source frame separately
+                for frame_id in self.current_frame_ids[1:]:
+                    if frame_id == "s":
+                        continue
+                    
+                    source_color = inputs[("color_aug", frame_id, 0)]
+                    source_depth_output = self.models["depth_model"](source_color)
+                    
+                    for scale in self.opt.scales:
+                        if self.opt.depth_model_type == 'endodac' or \
+                            (self.opt.depth_model_type == "depthanything3" and self.opt.da3_depth_regression_target in ["disp"]):
+                            source_disp = source_depth_output[("disp", scale)]
+                            if not self.opt.v1_multiscale:
+                                source_disp = F.interpolate(
+                                    source_disp, [self.opt.height, self.opt.width], 
+                                    mode="bilinear", align_corners=True)
+                            _, source_depth = disp_to_depth_v2(
+                                source_disp, self.opt.min_depth, self.opt.max_depth, 
+                                is_scaled_disp=False)
+                        else:
+                            assert self.opt.depth_model_type == 'depthanything3'
+                            if ("depth_native", 0, scale) in source_depth_output:
+                                if self.opt.da3_depth_regression_target in ["depth2disp_v3"]:
+                                    source_depth = source_depth_output[("depth_native", 0, scale)]
+                                else:
+                                    source_disp = source_depth_output[("disp", scale)]
+                                    if not self.opt.v1_multiscale:
+                                        source_disp = F.interpolate(
+                                            source_disp, [self.opt.height, self.opt.width], 
+                                            mode="bilinear", align_corners=True)
+                                    _, source_depth = disp_to_depth_v2(
+                                        source_disp, self.opt.min_depth, self.opt.max_depth, 
+                                        is_scaled_disp=True)
+                            else:
+                                source_disp = source_depth_output[("disp", scale)]
+                                if not self.opt.v1_multiscale:
+                                    source_disp = F.interpolate(
+                                        source_disp, [self.opt.height, self.opt.width], 
+                                        mode="bilinear", align_corners=True)
+                                _, source_depth = disp_to_depth_v2(
+                                    source_disp, self.opt.min_depth, self.opt.max_depth, 
+                                    is_scaled_disp=(self.opt.da3_depth_regression_target not in ["disp"]))
+                        
+                        outputs[("depth", frame_id, scale)] = source_depth
+                        if ("depth_native", 0, scale) in source_depth_output:
+                            outputs[("depth_native", frame_id, scale)] = source_depth_output[("depth_native", 0, scale)]
+                        if ("disp", scale) in source_depth_output:
+                            outputs[("disp", frame_id, scale)] = source_depth_output[("disp", scale)]
 
         if self.use_pose_net:
             outputs.update(self.predict_poses(inputs, None, 
