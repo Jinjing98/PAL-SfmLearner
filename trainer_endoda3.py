@@ -28,6 +28,7 @@ from networks.adjust_net import adjust_net
 from utils.utils_optic_flow import get_occu_mask_backward, get_occu_mask_bidirection, optical_flow, get_corresponding_map
 from utils.metrics import compute_depth_metrics, compute_pose_metrics, compute_depth_errors
 from utils.util import set_seed, readlines, normalize_image, sec_to_hm_str, disp_to_depth_v2, create_dataset_from_file_or_list
+from loss import compute_hfd_losses
 from utils.warping import (
     transformation_from_parameters,
     transformation_from_parameters_6D,
@@ -2760,6 +2761,44 @@ class Trainer:
 
         return reprojection_loss
 
+    def compute_hfd_loss(self, inputs, outputs, scale):
+        """
+        Compute High-Frequency Distillation (HFD) losses.
+        
+        Args:
+            inputs: Dictionary of input tensors
+            outputs: Dictionary of output tensors
+            scale: Current scale level
+            
+        Returns:
+            Dictionary with loss components: {'loss_hf', 'loss_topo', 'loss_recon', 'loss'} or None if not applicable
+        """
+        enable_teacher_student = getattr(self.opt, 'enable_teacher_student_training', False)
+        use_hfd = enable_teacher_student and scale == 0
+        
+        if not use_hfd or ("DA3_base_teacher_depth", 0, 0) not in inputs:
+            return None
+        
+        teacher_depth = inputs[("DA3_base_teacher_depth", 0, 0)]
+        student_depth = outputs[("depth", 0, scale)]
+        gt_depth = inputs.get(("depth_gt", 0, 0), None)
+        
+        hfd_loss_weights = {
+            'hf_loss_weight': self.opt.hfd_hf_loss_weight,
+            'topo_loss_weight': self.opt.hfd_topo_loss_weight,
+            'recon_loss_weight': self.opt.hfd_recon_loss_weight,
+            'hf_loss_type': self.opt.hfd_hf_loss_type,
+            'recon_loss_type': self.opt.hfd_recon_loss_type,
+            'grad_threshold': self.opt.hfd_grad_threshold
+        }
+        
+        return compute_hfd_losses(
+            student_depth=student_depth,
+            teacher_depth=teacher_depth,
+            gt_depth=gt_depth,
+            **hfd_loss_weights
+        )
+
     def compute_losses(self, inputs, outputs):
         losses = {}
         total_loss = 0
@@ -2876,6 +2915,24 @@ class Trainer:
             norm_disp = disp / (mean_disp + 1e-7)
             smooth_loss = get_smooth_loss(norm_disp, color)
 
+            #/////////////////// teach student HFD loss
+            # High-Frequency Distillation (HFD) loss - only compute at scale 0 (full resolution)
+            loss_hfd = 0.0
+            loss_hf = 0.0
+            loss_topo = 0.0
+            loss_recon_hfd = 0.0
+            
+            enable_teacher_student = getattr(self.opt, 'enable_teacher_student_training', False)
+            use_hfd = enable_teacher_student and scale == 0
+            
+            hfd_losses = self.compute_hfd_loss(inputs, outputs, scale)
+            if hfd_losses is not None:
+                loss_hf = hfd_losses['loss_hf']
+                loss_topo = hfd_losses['loss_topo']
+                loss_recon_hfd = hfd_losses['loss_recon']
+                loss_hfd = hfd_losses['loss']
+            #/////////////////////
+
             # Log unweighted sub-losses (before applying weights)
             losses["loss_reprojection/{}".format(scale)] = loss_reprojection / 2.0
             losses["loss_explict_geo/{}".format(scale)] = loss_explict_geo / 2.0
@@ -2883,6 +2940,12 @@ class Trainer:
             losses["loss_cvt/{}".format(scale)] = loss_cvt / 2.0
             losses["loss_smooth/{}".format(scale)] = smooth_loss / (2 ** scale)
             losses["loss_depth_consistency/{}".format(scale)] = loss_depth_consistency / max(len(self.current_frame_ids[1:]), 1)
+            
+            if use_hfd:
+                losses["loss_hf/{}".format(scale)] = loss_hf
+                losses["loss_topo/{}".format(scale)] = loss_topo
+                losses["loss_recon_hfd/{}".format(scale)] = loss_recon_hfd
+                losses["loss_hfd/{}".format(scale)] = loss_hfd
 
             # Apply weights and add to total loss
             loss += self.opt.photo_reprojection * (loss_reprojection / 2.0)
@@ -2897,6 +2960,11 @@ class Trainer:
             loss += self.opt.disparity_smoothness * smooth_loss / (2 ** scale)
             # Add depth consistency loss with weight (default 0.1)
             loss += self.opt.depth_consistency_weight * loss_depth_consistency
+            
+            # Add HFD loss (only at scale 0)
+            if use_hfd:
+                # HFD loss is already weighted inside compute_hfd_losses
+                loss += loss_hfd
 
             total_loss += loss
             losses["loss/{}".format(scale)] = loss

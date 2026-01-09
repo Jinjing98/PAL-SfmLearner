@@ -228,38 +228,36 @@ class EndoDepthAnything3Net(nn.Module):
         """
         if not hasattr(self.backbone, 'blocks'):
             assert False, "Backbone doesn't have blocks attribute"
-            # If backbone doesn't have blocks attribute, it might be a different structure
-            # Try to find blocks recursively
-            for name, module in self.backbone.named_modules():
-                if hasattr(module, 'blocks') and isinstance(module.blocks, nn.ModuleList):
-                    # Found a module with blocks, apply LoRA to it
-                    for blk in module.blocks:
-                        if hasattr(blk, 'mlp') and hasattr(blk.mlp, 'fc1') and hasattr(blk.mlp, 'fc2'):
-                            self._apply_lora_to_block(blk)
-                            attn_info = " (including attn.proj)" if self.lora_apply_to_attn else ""
-                            # print(f"Applied LoRA to block{attn_info}: {blk}")
-                    break
         else:
             # Standard case: backbone has blocks attribute
-            for blk in self.backbone.blocks:
-                if hasattr(blk, 'mlp') and hasattr(blk.mlp, 'fc1') and hasattr(blk.mlp, 'fc2') \
+            for layer_idx, blk in enumerate(self.backbone.blocks):
+                if (hasattr(blk, 'mlp') and hasattr(blk.mlp, 'fc1') and hasattr(blk.mlp, 'fc2')) \
                     or (hasattr(blk.mlp, 'w12') and hasattr(blk.mlp, 'w3')):
-                    attn_info = " (including attn.proj)" if self.lora_apply_to_attn else ""
                     if hasattr(blk.mlp, 'fc1') and hasattr(blk.mlp, 'fc2'):
-                        print(f"Applying LoRA to MLP block{attn_info}")
-                        self._apply_lora_to_block(blk)
+                        # print(f"Applying LoRA to MLP block (layer {layer_idx}) Include attn.qkv: {self.lora_apply_to_attn and (6 <= layer_idx <= 11)}")
+                        # we only apply on the qkv proj layer rather the attn.proj
+                        # Only apply attention LoRA to layers 6-11 (0-indexed: 6, 7, 8, 9, 10, 11)
+                        self._apply_lora_to_block(blk, layer_idx=layer_idx, 
+                                                lora_on_qkv=self.lora_apply_to_attn and (6 <= layer_idx <= 11), 
+                                                lora_on_proj=False)
                     elif hasattr(blk.mlp, 'w12') and hasattr(blk.mlp, 'w3'):
-                        print(f"Applying LoRA to SwiGLU block{attn_info}")
-                        self._apply_lora_to_block_swiglufused(blk)
+                        # print(f"Applying LoRA to SwiGLU block of giant model")
+                        self._apply_lora_to_block_swiglufused(blk, layer_idx=layer_idx)
+                    else:
+                        assert False, "blk is not attn blk"
+                
                 else:
                     assert False, "blk has no mlp or swiglufused"
     
-    def _apply_lora_to_block(self, blk):
+    def _apply_lora_to_block(self, blk, layer_idx=None, lora_on_qkv=False, lora_on_proj=False):
         """
         Apply LoRA to a single transformer block's MLP layers and optionally attention projection layer.
         
         Args:
             blk: Transformer block with mlp attribute containing fc1 and fc2, and optionally attn.proj
+            layer_idx: Layer index (0-indexed) for selective attention LoRA application
+            lora_on_qkv: Whether to apply LoRA to attention qkv layer
+            lora_on_proj: Whether to apply LoRA to attention projection layer
         """
         # Apply LoRA to MLP feed-forward layers
         mlp_in_features = blk.mlp.fc1.in_features
@@ -273,8 +271,9 @@ class EndoDepthAnything3Net(nn.Module):
             blk.mlp.fc1 = LoraLinear(mlp_in_features, mlp_hidden_features, r=self.lora_r)
             blk.mlp.fc2 = LoraLinear(mlp_hidden_features, mlp_out_features, r=self.lora_r)
         
-        # Optionally apply LoRA to attention projection layer
-        if self.lora_apply_to_attn and hasattr(blk, 'attn') and hasattr(blk.attn, 'proj'):
+        # Optionally apply LoRA to attention projection layer (only for layers 6-11)
+        if lora_on_proj:
+            assert 0, 'temporal disabled'
             attn_proj_in_features = blk.attn.proj.in_features
             attn_proj_out_features = blk.attn.proj.out_features
             
@@ -282,13 +281,27 @@ class EndoDepthAnything3Net(nn.Module):
                 blk.attn.proj = DVLinear(attn_proj_in_features, attn_proj_out_features, r=self.lora_r, lora_alpha=self.lora_r)
             elif self.lora_type == "lora":
                 blk.attn.proj = LoraLinear(attn_proj_in_features, attn_proj_out_features, r=self.lora_r)
+        
+        if lora_on_qkv:
+            # optionally apply on attn.qkv
+            qkv_in = blk.attn.qkv.in_features
+            qkv_out = blk.attn.qkv.out_features
+            if self.lora_type == "dvlora":
+                blk.attn.qkv = DVLinear(qkv_in, qkv_out, r=self.lora_r, lora_alpha=self.lora_r)
+            elif self.lora_type == "lora":
+                blk.attn.qkv = LoraLinear(qkv_in, qkv_out, r=self.lora_r)
 
-    def _apply_lora_to_block_swiglufused(self, blk):
+        print(f"Applied LoRA to attention projection layer{layer_idx} with lora_on_qkv: {lora_on_qkv} and lora_on_proj: {lora_on_proj}")
+
+
+    def _apply_lora_to_block_swiglufused(self, blk, layer_idx=None):
         """
         Apply LoRA to a single transformer block's SwiGLU feed-forward layers and optionally attention projection layer.
         
         Args:
             blk: Transformer block with swiglufused attribute containing w12 and w3
+            layer_idx: Layer index (0-indexed) for selective attention LoRA application
+            apply_attn_lora: Whether to apply LoRA to attention layers (overrides self.lora_apply_to_attn if provided)
         """
         # Apply LoRA to SwiGLU feed-forward layers
         # In SwiGLU: w12 has shape [in_features, 2 * hidden_features], w3 has shape [hidden_features, out_features]
@@ -303,14 +316,6 @@ class EndoDepthAnything3Net(nn.Module):
             blk.mlp.w12 = LoraLinear(swiglufused_in_features, swiglufused_w12_out_features, r=self.lora_r)
             blk.mlp.w3 = LoraLinear(swiglufused_hidden_features, swiglufused_out_features, r=self.lora_r)
         
-        # Optionally apply LoRA to attention projection layer
-        if self.lora_apply_to_attn and hasattr(blk, 'attn') and hasattr(blk.attn, 'proj'):
-            attn_proj_in_features = blk.attn.proj.in_features
-            attn_proj_out_features = blk.attn.proj.out_features
-            if self.lora_type == "dvlora":
-                blk.attn.proj = DVLinear(attn_proj_in_features, attn_proj_out_features, r=self.lora_r, lora_alpha=self.lora_r)
-            elif self.lora_type == "lora":
-                blk.attn.proj = LoraLinear(attn_proj_in_features, attn_proj_out_features, r=self.lora_r)
 
     def forward(
         self,
