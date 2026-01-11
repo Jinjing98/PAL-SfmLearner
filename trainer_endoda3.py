@@ -82,10 +82,9 @@ class EndoDepthAnything3NetWrapper(torch.nn.Module):
         if self.da3_depth_regression_target == "depth2disp":
             assert self.model.head.head_main == "depth", f"Expected head_main='depth' for depth2disp regression, but got head_main='{self.model.head.head_main}'"
             assert self.model.head.activation == "exp", f"Expected activation='sigmoid' for depth2disp regression, but got activation='{self.model.head.activation}'"
-        elif self.da3_depth_regression_target in ["depth2disp_v2", "depth2disp_v3"]:
-            assert self.model.head.head_main == "depth", f"Expected head_main='depth' for depth2disp_v2 regression, but got head_main='{self.model.head.head_main}'"
-            assert self.model.head.activation == "exp", f"Expected activation='sigmoid' for depth2disp regression, but got activation='{self.model.head.activation}'"
-            # depth2disp_v2 works with unbounded depth output, so no specific activation requirement
+        elif self.da3_depth_regression_target == "depth2disp_v3":
+            assert self.model.head.head_main == "depth", f"Expected head_main='depth' for depth2disp_v3 regression, but got head_main='{self.model.head.head_main}'"
+            assert self.model.head.activation == "exp", f"Expected activation='exp' for depth2disp_v3 regression, but got activation='{self.model.head.activation}'"
         elif self.da3_depth_regression_target == "disp":
             assert self.model.head.head_main == "disp", f"Expected head_main='disp' for disp regression, but got head_main='{self.model.head.head_main}'"
             assert self.model.head.activation == "sigmoid", f"Expected activation='sigmoid' for disp regression, but got activation='{self.model.head.activation}'"
@@ -93,58 +92,6 @@ class EndoDepthAnything3NetWrapper(torch.nn.Module):
             raise ValueError(f"Unsupported depth regression target: {self.da3_depth_regression_target}")
         # Expose lora_type from wrapped model for compatibility
         self.lora_type = getattr(model, 'lora_type', 'none')
-    def _depth_to_disp_v2(self, depth, per_image_norm = True, alpha=1.0):
-        """
-        Convert raw depth (unbounded, affine-invariant) to disparity using depth2disp_v2 method.
-
-        Args:
-            depth: Raw depth tensor of shape (B, 1, H, W) or (B, S, H, W)
-
-        Returns:
-            disp: Disparity tensor of same shape as input, strictly positive and bounded
-        """
-        # Per-batch centering: compute mean across all non-batch dimensions
-        # This handles both (B, 1, H, W) and (B, S, H, W) cases
-        B = depth.shape[0]
-        depth_flat = depth.view(B, -1)  # Flatten all non-batch dimensions
-
-        # Compute mean per batch (do NOT normalize by std)
-        depth_mean = depth_flat.mean(dim=1)  # (B,)
-
-        # Reshape for broadcasting
-        depth_mean = depth_mean.view(B, *([1] * (depth.dim() - 1)))
-
-        # Detach mean to avoid implicit global-scale feedback
-        depth_centered = depth - depth_mean.detach()
-
-
-        if per_image_norm:
-            # use robust scale: mean absolute deviation
-            depth_scale = depth_centered.abs().mean(dim=(-2, -1), keepdim=True)
-            depth_norm = depth_centered / (depth_scale.detach() + 1e-6)
-        else:
-            depth_norm = depth_centered
-
-        # Map to disparity using sigmoid with correct monotonicity
-        # disp = min_disp + (max_disp - min_disp) * sigmoid(-alpha * depth_centered)
-        # where min_disp = 1 / max_depth, max_disp = 1 / min_depth
-        min_disp = 1.0 / self.max_depth
-        max_disp = 1.0 / self.min_depth
-
-        # Sigmoid slope (controls sensitivity; 0.5~1.0 recommended)
-        # alpha = getattr(self, "depth2disp_alpha", 1.0)
-
-        # Apply sigmoid to -depth_centered (larger depth -> smaller disparity)
-        sigmoid_output = torch.sigmoid(-alpha * depth_norm)
-
-        # Scale to disparity range
-        disp = min_disp + (max_disp - min_disp) * sigmoid_output
-
-        # Ensure strictly positive (numerical safety)
-        # disp = torch.clamp(disp, min=1e-6)
-
-        return disp
-      
     def forward(self, x, frame_id=None, index_in_spatial_S=None, raw_model_output=None):
         """
         Forward pass.
@@ -240,45 +187,6 @@ class EndoDepthAnything3NetWrapper(torch.nn.Module):
                         # ///////////////////////
 
                         disp = 1.0 / depth_clamped
-                        
-                        # Map scale_idx (0,1,2,3) to self.scales (e.g., [0,1,2,3])
-                        # Find matching scale in self.scales
-                        if scale_idx in self.scales:
-                            outputs[("disp", scale_idx)] = disp
-                    else:
-                        available_keys = list(output.keys()) if hasattr(output, 'keys') else [k for k in dir(output) if not k.startswith('_')]
-                        raise AttributeError(f"Multi-scale output {depth_key} not found in model output. "
-                                           f"Available keys: {available_keys}")
-            elif self.da3_depth_regression_target == "depth2disp_v2":
-                # Extract multi-scale depth outputs: depth_0, depth_1, depth_2, depth_3
-                for scale_idx in range(4):
-                    scale_name = str(scale_idx)
-                    depth_key = f"{head_main}_{scale_name}"
-                    
-                    # Check if key exists in output (AddictDict supports both dict and attr access)
-                    if depth_key in output or hasattr(output, depth_key):
-                        depth = output[depth_key] if depth_key in output else getattr(output, depth_key)  # (B, S, H, W)
-                        assert depth.dim() == 4, f"depth_{scale_name} shape: {depth.shape}"
-                        
-                        if single_frame_input:
-                            assert depth.shape[1] == 1, f"depth_{scale_name} shape: {depth.shape}"
-                        
-                        # For multi-frame input with ref_view_strategy='first', extract depth for target frame (frame 0)
-                        if not single_frame_input:
-                            assert self.model.ref_view_strategy == "first", \
-                                f"ref_view_strategy must be 'first' for multi-frame depth extraction, got {self.model.ref_view_strategy}"
-                            depth = depth[:, 0:1, :, :]  # (B, 1, H, W)
-
-                        # ///////////////////////
-                        # use native depth rather the depth from disp2depth
-                        if scale_idx in self.scales:
-                            if depth.shape[-2:] != (256, 320):
-                                depth = F.interpolate(depth, size=(H, W), mode="bilinear", align_corners=True)
-                            outputs[("depth_native", 0, scale_idx)] = depth
-                        # ///////////////////////
-
-                        # Convert depth to disparity using depth2disp_v2 (no hard clamp, per-batch normalization + sigmoid)
-                        disp = self._depth_to_disp_v2(depth)
                         
                         # Map scale_idx (0,1,2,3) to self.scales (e.g., [0,1,2,3])
                         # Find matching scale in self.scales
@@ -419,45 +327,6 @@ class EndoDepthAnything3NetWrapper(torch.nn.Module):
                         depth_scale = F.interpolate(depth, size=(h_scale, w_scale), 
                                                 mode="bilinear", align_corners=True)
                         outputs[("depth_native", 0,scale)] = depth_scale
-
-            elif self.da3_depth_regression_target == "depth2disp_v2":
-                assert 0,'not fix back n forth interpolate yet'
-                depth = output.depth
-                assert depth.dim() == 4, f"depth shape: {depth.shape}"
-                if single_frame_input:
-                    assert depth.shape[1] == 1, f"depth shape: {depth.shape}"
-                
-                # For multi-frame input with ref_view_strategy='first', extract depth for target frame (frame 0)
-                if not single_frame_input:
-                    # Ensure ref_view_strategy is 'first' for deterministic frame 0 extraction
-                    assert self.model.ref_view_strategy == "first", \
-                        f"ref_view_strategy must be 'first' for multi-frame depth extraction, got {self.model.ref_view_strategy}"
-                    # Extract depth for frame 0 (first frame in spatial dimension)
-                    depth = depth[:, 0:1, :, :]  # (B, 1, H, W) - keep dim for consistency
-
-                # Convert depth to disparity using depth2disp_v2 (no hard clamp, per-batch normalization + sigmoid)
-                disp = self._depth_to_disp_v2(depth)  # (B, 1, H, W) for multi-frame, (B, S, H, W) for single-frame
-            
-                # Interpolate to match input image size if needed
-                if disp.shape[-2:] != (256, 320):
-                    disp = F.interpolate(disp, size=(256, 320), mode="bilinear", align_corners=True)
-
-                # Create multi-scale disp outputs
-                outputs = {}
-                for scale in self.scales:
-                    if scale == 0:
-                        outputs[("disp", scale)] = disp
-                        outputs[("depth_native",0, scale)] = depth
-                    else:
-                        h_scale = H // (2 ** scale)
-                        w_scale = W // (2 ** scale)
-                        disp_scale = F.interpolate(disp, size=(h_scale, w_scale), 
-                                                mode="bilinear", align_corners=True)
-                        outputs[("disp", scale)] = disp_scale
-
-                        depth_scale = F.interpolate(depth, size=(h_scale, w_scale), 
-                                                mode="bilinear", align_corners=True)
-                        outputs[("depth_native", 0, scale)] = depth_scale
 
             elif self.da3_depth_regression_target == "depth2disp_v3":
                 assert NotImplementedError("depth2disp_v3 is not implemented yet")
@@ -660,32 +529,6 @@ class EndoDepthAnything3NetWrapper(torch.nn.Module):
                         if scale_idx in self.scales:
                             outputs[("disp", frame_id, scale_idx)] = disp
                             
-            elif self.da3_depth_regression_target == "depth2disp_v2":
-                for scale_idx in range(4):
-                    scale_name = str(scale_idx)
-                    depth_key = f"{head_main}_{scale_name}"
-                    
-                    if depth_key in output or hasattr(output, depth_key):
-                        depth = output[depth_key] if depth_key in output else getattr(output, depth_key)  # (B, S, H, W)
-                        assert depth.dim() == 4, f"depth_{scale_name} shape: {depth.shape}"
-                        
-                        # Extract depth for specific frame
-                        if not single_frame_input:
-                            assert self.model.ref_view_strategy == "first", \
-                                f"ref_view_strategy must be 'first' for multi-frame depth extraction"
-                            assert 0 <= index_in_spatial_S < depth.shape[1], \
-                                f"index_in_spatial_S ({index_in_spatial_S}) out of range [0, {depth.shape[1]})"
-                            depth = depth[:, index_in_spatial_S:index_in_spatial_S+1, :, :]  # (B, 1, H, W)
-                        
-                        if scale_idx in self.scales:
-                            if depth.shape[-2:] != (256, 320):
-                                depth = F.interpolate(depth, size=(H, W), mode="bilinear", align_corners=True)
-                            outputs[("depth_native", frame_id, scale_idx)] = depth
-                        
-                        disp = self._depth_to_disp_v2(depth)
-                        if scale_idx in self.scales:
-                            outputs[("disp", frame_id, scale_idx)] = disp
-                            
             elif self.da3_depth_regression_target == "depth2disp_v3":
                 for scale_idx in range(4):
                     scale_name = str(scale_idx)
@@ -757,35 +600,6 @@ class EndoDepthAnything3NetWrapper(torch.nn.Module):
                 
                 depth_clamped = torch.clamp(depth, min=MIN_DEPTH, max=MAX_DEPTH)
                 disp = 1.0 / depth_clamped
-                
-                if disp.shape[-2:] != (256, 320):
-                    disp = F.interpolate(disp, size=(256, 320), mode="bilinear", align_corners=True)
-                
-                for scale in self.scales:
-                    if scale == 0:
-                        outputs[("disp", frame_id, scale)] = disp
-                        outputs[("depth_native", frame_id, scale)] = depth
-                    else:
-                        h_scale = H // (2 ** scale)
-                        w_scale = W // (2 ** scale)
-                        disp_scale = F.interpolate(disp, size=(h_scale, w_scale), mode="bilinear", align_corners=True)
-                        outputs[("disp", frame_id, scale)] = disp_scale
-                        depth_scale = F.interpolate(depth, size=(h_scale, w_scale), mode="bilinear", align_corners=True)
-                        outputs[("depth_native", frame_id, scale)] = depth_scale
-                        
-            elif self.da3_depth_regression_target == "depth2disp_v2":
-                depth = output.depth
-                assert depth.dim() == 4, f"depth shape: {depth.shape}"
-                
-                # Extract depth for specific frame
-                if not single_frame_input:
-                    assert self.model.ref_view_strategy == "first", \
-                        f"ref_view_strategy must be 'first' for multi-frame depth extraction"
-                    assert 0 <= index_in_spatial_S < depth.shape[1], \
-                        f"index_in_spatial_S ({index_in_spatial_S}) out of range [0, {depth.shape[1]})"
-                    depth = depth[:, index_in_spatial_S:index_in_spatial_S+1, :, :]  # (B, 1, H, W)
-                
-                disp = self._depth_to_disp_v2(depth)
                 
                 if disp.shape[-2:] != (256, 320):
                     disp = F.interpolate(disp, size=(256, 320), mode="bilinear", align_corners=True)
@@ -2572,8 +2386,8 @@ class Trainer:
                 disp = F.interpolate(
                     disp, [self.opt.height, self.opt.width], mode="bilinear", align_corners=True)
 
-            # For depth2disp and depth2disp_v2, disparity is already scaled (not in [0,1])
-            # is_scaled_disp = (self.opt.da3_depth_regression_target in ["depth2disp", "depth2disp_v2"] 
+            # For depth2disp, disparity is already scaled (not in [0,1])
+            # is_scaled_disp = (self.opt.da3_depth_regression_target == "depth2disp" 
             #                  and self.opt.depth_model_type == "depthanything3")
             if self.opt.depth_model_type=='endodac' or \
                 (self.opt.depth_model_type == "depthanything3" and self.opt.da3_depth_regression_target in ["disp"]):
