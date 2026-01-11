@@ -232,8 +232,16 @@ class MonodepthOptions:
                                  default=0.01)
         self.parser.add_argument("--photo_reprojection",
                                  type=float,
-                                 help="explicit flow-based geometry loss weight (pose_flow vs optical flow)",
+                                 help="photo reprojection loss weight",
                                  default=1.0)
+        self.parser.add_argument("--photo_reprojection_conf_aware",
+                                 type=float,
+                                 help="confidence-aware photo reprojection loss weight (default: 0.0, disabled)",
+                                 default=0.0)
+        self.parser.add_argument("--conf_aware_beta",
+                                 type=float,
+                                 help="beta for log regularization in conf-aware loss (default: 0.2)",
+                                 default=0.2)
         self.parser.add_argument("--explicit_flow_geometry",
                                  type=float,
                                  help="explicit flow-based geometry loss weight (pose_flow vs optical flow)",

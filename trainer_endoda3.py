@@ -2687,6 +2687,10 @@ class Trainer:
             loss = 0
 
             loss_reprojection = 0
+
+            loss_conf_aware_reprojection = 0
+
+
             loss_depth_consistency = 0
             loss_explict_geo = 0 #optic flow based
             debug_flow_based_geo = True
@@ -2761,6 +2765,16 @@ class Trainer:
                 loss_reprojection += (
                     self.compute_reprojection_loss(outputs[("color", frame_id, scale)], supervision_target) * occu_mask_backward).sum() / occu_mask_backward.sum()  
                 
+                # Confidence-aware reprojection loss: C * l_photo - beta * log(C)
+                if self.opt.photo_reprojection_conf_aware > 0:
+                    conf = outputs[("conf", 0, scale)]  # (B, 1, H, W)
+                    photo_loss_per_pixel = self.compute_reprojection_loss(outputs[("color", frame_id, scale)], supervision_target)  # (B, 1, H, W)
+                    # Resize conf to match photo_loss_per_pixel if needed
+                    if conf.shape[-2:] != photo_loss_per_pixel.shape[-2:]:
+                        conf = F.interpolate(conf, size=photo_loss_per_pixel.shape[-2:], mode="bilinear", align_corners=True)
+                    conf_aware_loss_per_pixel = conf * photo_loss_per_pixel - self.opt.conf_aware_beta * torch.log(conf + 1e-7)
+                    loss_conf_aware_reprojection += conf_aware_loss_per_pixel.mean()
+
                 # Depth consistency loss: compare geometry-computed depth with network-predicted depth
                 # Both depths are in source camera frame: computed_depth from geometry, depth_src_warped from network
                 if self.opt.enable_source_depths_estimation:
@@ -2814,6 +2828,7 @@ class Trainer:
 
             # Log unweighted sub-losses (before applying weights)
             losses["loss_reprojection/{}".format(scale)] = loss_reprojection / 2.0
+            losses["loss_conf_aware_reprojection/{}".format(scale)] = loss_conf_aware_reprojection / 2.0
             losses["loss_explict_geo/{}".format(scale)] = loss_explict_geo / 2.0
             losses["loss_transform/{}".format(scale)] = loss_transform / 2.0
             losses["loss_cvt/{}".format(scale)] = loss_cvt / 2.0
@@ -2828,6 +2843,7 @@ class Trainer:
 
             # Apply weights and add to total loss
             loss += self.opt.photo_reprojection * (loss_reprojection / 2.0)
+            loss += self.opt.photo_reprojection_conf_aware * (loss_conf_aware_reprojection / 2.0)
             # Apply explicit flow geometry loss only after warm-up epoch
             warmup_epoch = getattr(self.opt, 'explicit_flow_geometry_warmup_epoch', 5)
             current_epoch = getattr(self, 'epoch', 0)  # Default to 0 if epoch not set (e.g., during initialization)
