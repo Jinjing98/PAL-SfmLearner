@@ -14,6 +14,10 @@ lora_apply_to_attn: True
 dino_resize_hw:
   - 224
   - 280
+# dino_resize_hw:
+  # - 252
+  # - 322
+
 ref_view_strategy: "first"
 
 # dino_resize_hw:
@@ -51,6 +55,7 @@ net:
   # dino_resize_hw: actual input image size after resizing (used for residual block patch dimensions)
   # If not specified, falls back to img_size
   dino_resize_hw: [224, 280]
+  # dino_resize_hw: [252, 322]
 
 
 head:

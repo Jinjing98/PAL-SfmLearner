@@ -234,7 +234,7 @@ class EndoDepthAnything3NetWrapper(torch.nn.Module):
                         # ///////////////////////
                         # use native depth rather the depth from disp2depth
                         if scale_idx in self.scales:
-                            if scale_idx != 0:
+                            if depth.shape[-2:] != (256, 320):
                                 depth = F.interpolate(depth, size=(H, W), mode="bilinear", align_corners=True)
                             outputs[("depth_native", 0, scale_idx)] = depth
                         # ///////////////////////
@@ -272,7 +272,7 @@ class EndoDepthAnything3NetWrapper(torch.nn.Module):
                         # ///////////////////////
                         # use native depth rather the depth from disp2depth
                         if scale_idx in self.scales:
-                            if scale_idx != 0:
+                            if depth.shape[-2:] != (256, 320):
                                 depth = F.interpolate(depth, size=(H, W), mode="bilinear", align_corners=True)
                             outputs[("depth_native", 0, scale_idx)] = depth
                         # ///////////////////////
@@ -330,7 +330,7 @@ class EndoDepthAnything3NetWrapper(torch.nn.Module):
                         # ///////////////////////
                         # use native depth rather the depth from disp2depth
                         if scale_idx in self.scales:
-                            if scale_idx != 0:
+                            if depth.shape[-2:] != (256, 320):
                                 depth = F.interpolate(depth, size=(H, W), mode="bilinear", align_corners=True)
                             outputs[("depth_native", 0, scale_idx)] = depth
                         # ///////////////////////
@@ -397,14 +397,15 @@ class EndoDepthAnything3NetWrapper(torch.nn.Module):
                 depth_clamped = torch.clamp(depth, min=MIN_DEPTH, max=MAX_DEPTH)
                 disp = 1.0 / depth_clamped # (B, 1, H, W) for multi-frame, (B, S, H, W) for single-frame
             
-                # Interpolate to match input image size if needed
-                if disp.shape[-2:] != (256, 320):
-                    disp = F.interpolate(disp, size=(256, 320), mode="bilinear", align_corners=True)
 
                 # Create multi-scale disp outputs
                 outputs = {}
                 for scale in self.scales:
                     if scale == 0:
+                        # Interpolate to match input image size if needed
+                        if disp.shape[-2:] != (256, 320):
+                            disp = F.interpolate(disp, size=(256, 320), mode="bilinear", align_corners=True)
+
                         outputs[("disp", scale)] = disp
                         outputs[("depth_native", 0, scale)] = depth
 
@@ -420,6 +421,7 @@ class EndoDepthAnything3NetWrapper(torch.nn.Module):
                         outputs[("depth_native", 0,scale)] = depth_scale
 
             elif self.da3_depth_regression_target == "depth2disp_v2":
+                assert 0,'not fix back n forth interpolate yet'
                 depth = output.depth
                 assert depth.dim() == 4, f"depth shape: {depth.shape}"
                 if single_frame_input:
@@ -475,8 +477,10 @@ class EndoDepthAnything3NetWrapper(torch.nn.Module):
                     # Extract disp for frame 0 (first frame in spatial dimension)
                     disp = disp[:, 0:1, :, :]  # (B, 1, H, W) - keep dim for consistency
                 
+                assert 0, 'not fix yet'
                 # Interpolate to match input image size if needed
                 if disp.shape[-2:] != (256, 320):
+                    assert disp.shape[-2:] == (H, W), f"disp shape: {disp.shape}"
                     disp = F.interpolate(disp, size=(256, 320), mode="bilinear", align_corners=True)
                 
                 # Create multi-scale disp outputs
@@ -648,11 +652,11 @@ class EndoDepthAnything3NetWrapper(torch.nn.Module):
                         depth_clamped = torch.clamp(depth, min=MIN_DEPTH, max=MAX_DEPTH)
                         
                         if scale_idx in self.scales:
-                            if scale_idx != 0:
+                            if depth.shape[-2:] != (256, 320):
                                 depth = F.interpolate(depth, size=(H, W), mode="bilinear", align_corners=True)
                             outputs[("depth_native", frame_id, scale_idx)] = depth
                         
-                        disp = 1.0 / depth_clamped
+                        disp = 1.0 / depth_clamped 
                         if scale_idx in self.scales:
                             outputs[("disp", frame_id, scale_idx)] = disp
                             
@@ -674,7 +678,7 @@ class EndoDepthAnything3NetWrapper(torch.nn.Module):
                             depth = depth[:, index_in_spatial_S:index_in_spatial_S+1, :, :]  # (B, 1, H, W)
                         
                         if scale_idx in self.scales:
-                            if scale_idx != 0:
+                            if depth.shape[-2:] != (256, 320):
                                 depth = F.interpolate(depth, size=(H, W), mode="bilinear", align_corners=True)
                             outputs[("depth_native", frame_id, scale_idx)] = depth
                         
@@ -709,7 +713,7 @@ class EndoDepthAnything3NetWrapper(torch.nn.Module):
                         depth = depth_norm * scale_detached
                         
                         if scale_idx in self.scales:
-                            if scale_idx != 0:
+                            if depth.shape[-2:] != (256, 320):
                                 depth = F.interpolate(depth, size=(H, W), mode="bilinear", align_corners=True)
                             outputs[("depth_native", frame_id, scale_idx)] = depth
                         
@@ -738,6 +742,7 @@ class EndoDepthAnything3NetWrapper(torch.nn.Module):
                             outputs[("disp", frame_id, scale_idx)] = disp
         else:
             # Single-scale output
+            # the direct output from DPT is dino_size_h_w
             if self.da3_depth_regression_target == "depth2disp":
                 depth = output.depth
                 assert depth.dim() == 4, f"depth shape: {depth.shape}"

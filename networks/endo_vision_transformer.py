@@ -293,7 +293,7 @@ class EndoDinoVisionTransformer(nn.Module):
         self.norm = norm_layer(embed_dim)
 
     def forward(self, x, **kwargs):
-        assert x.shape[-2:] == self.dino_resize_hw, "input size must be the same as dino_resize_hw: {self.dino_resize_hw}"
+        assert x.shape[-2:] == self.dino_resize_hw, f"input size {x.shape[-2:]} must be the same as dino_resize_hw: {self.dino_resize_hw}"
         return self.get_intermediate_layers(x, **kwargs)
 
     def interpolate_pos_encoding(self, x, w, h):

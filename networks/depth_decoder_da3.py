@@ -234,23 +234,22 @@ class DualDPTMultiScale(DualDPT):
         feats: List[torch.Tensor],
         H: int,
         W: int,
-        patch_start_idx: int,
-    ) -> Dict[str, torch.Tensor]:
-        B, _, C = feats[0].shape
-        ph, pw = H // self.patch_size, W // self.patch_size
-        resized_feats = []
-        for stage_idx, take_idx in enumerate(self.intermediate_layer_idx):
-            x = feats[take_idx][:, patch_start_idx:]
-            x = self.norm(x)
-            x = x.permute(0, 2, 1).reshape(B, C, ph, pw)  # [B*S, C, ph, pw]
-
-            x = self.projects[stage_idx](x)
-            if self.pos_embed:
-                x = self._add_pos_embed(x, W, H)
-            x = self.resize_layers[stage_idx](x)  # align scales
-            resized_feats.append(x)
-
+        patch_start_idx: int,) -> Dict[str, torch.Tensor]:
         if self.enable_multi_scale:
+            B, _, C = feats[0].shape
+            ph, pw = H // self.patch_size, W // self.patch_size
+            resized_feats = []
+            for stage_idx, take_idx in enumerate(self.intermediate_layer_idx):
+                x = feats[take_idx][:, patch_start_idx:]
+                x = self.norm(x)
+                x = x.permute(0, 2, 1).reshape(B, C, ph, pw)  # [B*S, C, ph, pw]
+
+                x = self.projects[stage_idx](x)
+                if self.pos_embed:
+                    x = self._add_pos_embed(x, W, H)
+                x = self.resize_layers[stage_idx](x)  # align scales
+                resized_feats.append(x)
+
             # Multi-scale fusion
             path_main_4, path_main_3, path_main_2, path_main_1, path_aux_4, path_aux_3, path_aux_2, path_aux_1 = self._fuse_multi_scale(resized_feats)
             
@@ -260,6 +259,10 @@ class DualDPTMultiScale(DualDPT):
             
             outs: Dict[str, torch.Tensor] = {}
             
+
+            enforce_256_320_explicitly = True # necessary if we want more than dino_size_224_280
+            enforce_256_320_explicitly = False # necessary if we want more than dino_size_224_280
+            
             # Main head outputs at each scale
             for scale_idx, (path_main, path_aux) in enumerate([
                 (path_main_4, path_aux_4),
@@ -268,9 +271,25 @@ class DualDPTMultiScale(DualDPT):
                 (path_main_1, path_aux_1),
             ]):
                 scale_name = str(3 - scale_idx)  # 3, 2, 1, 0
-                
+
+               
+                if enforce_256_320_explicitly:
+                # --- [Change 1] 计算当前 scale 的目标分辨率 ---
+                # h_out_layer = int((ph * self.patch_size / self.down_ratio) / (2**(3-scale_idx)))
+                # w_out_layer = int((pw * self.patch_size / self.down_ratio) / (2**(3-scale_idx)))
+                    h_out_layer = int((256 / (2**(3-scale_idx))))
+                    w_out_layer = int((320 / (2**(3-scale_idx))))
+
+
                 # Main head
                 main_logits = getattr(self, f'conv_depth_main_{scale_idx + 1}')(path_main)
+
+                if enforce_256_320_explicitly:
+                    # --- [Change 3] 强制对齐到 target layer resolution ---
+                    # print('DPTMulti before interpolate', main_logits.shape)
+                    main_logits = custom_interpolate(main_logits, (h_out_layer, w_out_layer), mode="bilinear", align_corners=True)
+                    # print('DPTMulti after interpolate', main_logits.shape)
+
                 fmap_main = main_logits.permute(0, 2, 3, 1)
                 main_pred = self._apply_activation_single(fmap_main[..., :-1], self.activation)
                 main_conf = self._apply_activation_single(fmap_main[..., -1], self.conf_activation)
@@ -279,6 +298,11 @@ class DualDPTMultiScale(DualDPT):
                 
                 # Aux head
                 aux_logits = getattr(self, f'conv_depth_aux_{scale_idx + 1}')(path_aux)
+
+                if enforce_256_320_explicitly:
+                    # --- [Change 4] 强制对齐到 target layer resolution ---
+                    aux_logits = custom_interpolate(aux_logits, (h_out_layer, w_out_layer), mode="bilinear", align_corners=True)
+
                 fmap_aux = aux_logits.permute(0, 2, 3, 1)
                 aux_pred = self._apply_activation_single(fmap_aux[..., :-1], "linear")
                 aux_conf = self._apply_activation_single(fmap_aux[..., -1], self.conf_activation)

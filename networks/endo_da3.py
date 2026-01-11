@@ -367,6 +367,7 @@ class EndoDepthAnything3Net(nn.Module):
 
         # Process features through depth head
         with torch.autocast(device_type=x.device.type, enabled=False):
+            # H W control the depth from DPT is with spatial dim dino_h_w
             output = self._process_depth_head(feats, H, W)
             if use_ray_pose:
                 output = self._process_ray_pose_estimation(output, H, W)
@@ -436,6 +437,7 @@ class EndoDepthAnything3Net(nn.Module):
         self, feats: list[torch.Tensor], H: int, W: int
     ) -> Dict[str, torch.Tensor]:
         """Process features through the depth prediction head."""
+        # DPT has no idea regarding the target size, it is all controlled here.
         return self.head(feats, H, W, patch_start_idx=0)
 
     def _process_camera_estimation(
@@ -554,6 +556,7 @@ if __name__ == "__main__":
 
     Model_with_wrapper = create_object(load_config("networks/configs/endo-da3-depth-default.yaml"))
     Model_with_wrapper = create_object(load_config("networks/configs/endo-da3-all-default.yaml"))
+    Model_with_wrapper = create_object(load_config("networks/configs/endo-da3-all-wowrapper.yaml"))
     Model_with_wrapper.eval()
     Model_with_wrapper.to("cuda")
 
@@ -561,9 +564,8 @@ if __name__ == "__main__":
     set_seed(42)
     
     # Model = create_object(load_config("networks/configs/endo-da3-all-wowrapper.yaml"))
-    Model = create_object(load_config("networks/configs/endo-da3-all-wowrapper-giant.yaml"))
-    # Model = create_object(load_config("networks/configs/endo-da3-depth-wowrapper.yaml"))
-    # Model = create_object(load_config("networks/configs/endo-da3-depth-wowrapper-default.yaml"))
+    # Model = create_object(load_config("networks/configs/endo-da3-all-wowrapper-giant.yaml"))
+    Model = create_object(load_config("networks/configs/endo-da3-depth-wowrapper.yaml"))
     Model.eval()
     Model.to("cuda")
 
@@ -572,13 +574,14 @@ if __name__ == "__main__":
     print("Loading pretrained weights from DepthAnything3")
     print("="*60)
     
-    # model_pretrained = DepthAnything3.from_pretrained("depth-anything/da3-base")
-    model_pretrained = DepthAnything3.from_pretrained("depth-anything/da3-giant")
+    model_pretrained = DepthAnything3.from_pretrained("depth-anything/da3-base")
+    # model_pretrained = DepthAnything3.from_pretrained("depth-anything/da3-giant")
     model_pretrained = model_pretrained#.to(device="cuda")
 
     load_pretrained = False
-    load_pretrained = True
+    # load_pretrained = True
     load_infer_wrapper = False
+    load_infer_wrapper = True
     if load_pretrained:
 
         # DPT DEPTH: B S H W 1; 
@@ -608,17 +611,17 @@ if __name__ == "__main__":
                 if Model.cam_dec.fc_fov_arch != "linear_relu":
                     disable_modules.append("cam_dec.fc_fov")
 
-        load_pretrained_weights(
-            model=Model,
-            pretrained_model=model_pretrained,
-            model_name="Model",
-            remove_prefixes=["model.", "pretrained."],
-            disable_modules=disable_modules,
-            strict=False,
-            max_levels=3,
-            # max_levels=6,# show lora param
-            verbose=False
-        )
+        # load_pretrained_weights(
+        #     model=Model,
+        #     pretrained_model=model_pretrained,
+        #     model_name="Model",
+        #     remove_prefixes=["model.", "pretrained."],
+        #     disable_modules=disable_modules,
+        #     strict=False,
+        #     max_levels=3,
+        #     # max_levels=6,# show lora param
+        #     verbose=False
+        # )
         if load_infer_wrapper:
             # Load weights into Model_with_wrapper (only needs to remove model. prefix)
             load_pretrained_weights(
@@ -635,6 +638,7 @@ if __name__ == "__main__":
     # Test with same input
     set_seed(42)  # Set seed for input tensor too
     input_imgs_tensor = torch.randn(2, 3, 3, 336, 504).to("cuda")
+    input_imgs_tensor = torch.randn(2, 3, 3, 256, 320).to("cuda")
     input_intrinsics_tensor = torch.randn(2, 3, 3, 3).to("cuda")
     input_extrinsics_tensor = torch.randn(2, 3, 4, 4).to("cuda")
 
@@ -645,12 +649,12 @@ if __name__ == "__main__":
     use_ray_pose = False
 
     with torch.no_grad():
-        output = Model.forward(input_imgs_tensor, 
-                intrinsics=input_intrinsics_tensor, 
-                extrinsics=input_extrinsics_tensor,
-                export_feat_layers=export_feat_layers,
-                infer_gs=infer_gs,
-                use_ray_pose=use_ray_pose)
+        # output = Model.forward(input_imgs_tensor, 
+        #         intrinsics=input_intrinsics_tensor, 
+        #         extrinsics=input_extrinsics_tensor,
+        #         export_feat_layers=export_feat_layers,
+        #         infer_gs=infer_gs,
+        #         use_ray_pose=use_ray_pose)
         if load_infer_wrapper:
             output_with_wrapper = Model_with_wrapper.forward(input_imgs_tensor, 
                     intrinsics=input_intrinsics_tensor, 
@@ -659,25 +663,25 @@ if __name__ == "__main__":
                     infer_gs=infer_gs,
                     use_ray_pose=use_ray_pose)
     
-    for key, value in output.items():
-        print(f"Output {key}: {value.shape}")
-        if isinstance(value, torch.Tensor):
-            print(value.min(), value.max(), value.mean())
-        else:
-            print(value)
-        print("-"*60)
-    print('Intrisics')
-    print(output.intrinsics[0, 0])
-    print('Extrinsics')
-    print(output.extrinsics[0, 0])
+    # for key, value in output.items():
+    #     print(f"Output {key}: {value.shape}")
+    #     if isinstance(value, torch.Tensor):
+    #         print(value.min(), value.max(), value.mean())
+    #     else:
+    #         print(value)
+    #     print("-"*60)
+    # print('Intrisics')
+    # print(output.intrinsics[0, 0])
+    # print('Extrinsics')
+    # print(output.extrinsics[0, 0])
 
     if load_infer_wrapper:
         for key, value in output_with_wrapper.items():
             print(f"Output_with_wrapper {key}: {value.shape}")
-            if isinstance(value, torch.Tensor):
-                print(value.min(), value.max(), value.mean())
-            else:
-                print(value)
+            # if isinstance(value, torch.Tensor):
+            #     print(value.min(), value.max(), value.mean())
+            # else:
+            #     print(value)
             print("-"*60)
 
 
