@@ -143,8 +143,10 @@ class EndoDepthAnything3NetWrapper(torch.nn.Module):
             if isinstance(self.model.head, DPT) or isinstance(self.model.head, DPTMultiScale):
                 if self.model.head.head_main == "depth":
                     output.depth = output.depth.squeeze(-1)
+                    output.depth_conf = output.depth_conf.squeeze(-1)
                 elif self.model.head.head_main == "disp":
                     output.disp = output.disp.squeeze(-1)
+                    output.disp_conf = output.disp_conf.squeeze(-1)
             else:
                 assert isinstance(self.model.head, DualDPT) or isinstance(self.model.head, DualDPTMultiScale), \
                     f"model.head must be a DualDPT or DualDPTMultiScale, got {type(self.model.head)}"
@@ -160,11 +162,14 @@ class EndoDepthAnything3NetWrapper(torch.nn.Module):
                 for scale_idx in range(4):
                     scale_name = str(scale_idx)
                     depth_key = f"{head_main}_{scale_name}"
+                    conf_key = f"{head_main}_conf_{scale_name}"
                     
                     # Check if key exists in output (AddictDict supports both dict and attr access)
                     if depth_key in output or hasattr(output, depth_key):
                         depth = output[depth_key] if depth_key in output else getattr(output, depth_key)  # (B, S, H, W)
+                        conf = output[conf_key] if conf_key in output else getattr(output, conf_key)  # (B, S, H, W)
                         assert depth.dim() == 4, f"depth_{scale_name} shape: {depth.shape}"
+                        assert conf.dim() == 4, f"conf_{scale_name} shape: {conf.shape}"
                         
                         if single_frame_input:
                             assert depth.shape[1] == 1, f"depth_{scale_name} shape: {depth.shape}"
@@ -174,6 +179,7 @@ class EndoDepthAnything3NetWrapper(torch.nn.Module):
                             assert self.model.ref_view_strategy == "first", \
                                 f"ref_view_strategy must be 'first' for multi-frame depth extraction, got {self.model.ref_view_strategy}"
                             depth = depth[:, 0:1, :, :]  # (B, 1, H, W)
+                            conf = conf[:, 0:1, :, :]  # (B, 1, H, W)
                         
                         # Convert depth to disparity
                         depth_clamped = torch.clamp(depth, min=MIN_DEPTH, max=MAX_DEPTH)
@@ -183,7 +189,7 @@ class EndoDepthAnything3NetWrapper(torch.nn.Module):
                         if scale_idx in self.scales:
                             if depth.shape[-2:] != (256, 320):
                                 depth = F.interpolate(depth, size=(H, W), mode="bilinear", align_corners=True)
-                            outputs[("depth_native", 0, scale_idx)] = depth
+                            # outputs[("depth_native", 0, scale_idx)] = depth
                         # ///////////////////////
 
                         disp = 1.0 / depth_clamped
@@ -192,6 +198,7 @@ class EndoDepthAnything3NetWrapper(torch.nn.Module):
                         # Find matching scale in self.scales
                         if scale_idx in self.scales:
                             outputs[("disp", scale_idx)] = disp
+                            outputs[("conf", 0, scale_idx)] = conf
                     else:
                         available_keys = list(output.keys()) if hasattr(output, 'keys') else [k for k in dir(output) if not k.startswith('_')]
                         raise AttributeError(f"Multi-scale output {depth_key} not found in model output. "
@@ -202,11 +209,14 @@ class EndoDepthAnything3NetWrapper(torch.nn.Module):
                 for scale_idx in range(4):
                     scale_name = str(scale_idx)
                     depth_key = f"{head_main}_{scale_name}"
+                    conf_key = f"{head_main}_conf_{scale_name}"
                     
                     # Check if key exists in output (AddictDict supports both dict and attr access)
                     if depth_key in output or hasattr(output, depth_key):
                         depth_raw = output[depth_key] if depth_key in output else getattr(output, depth_key)  # (B, S, H, W)
+                        conf = output[conf_key] if conf_key in output else getattr(output, conf_key)  # (B, S, H, W)
                         assert depth_raw.dim() == 4, f"depth_{scale_name} shape: {depth_raw.shape}"
+                        assert conf.dim() == 4, f"conf_{scale_name} shape: {conf.shape}"
                         
                         if single_frame_input:
                             assert depth_raw.shape[1] == 1, f"depth_{scale_name} shape: {depth_raw.shape}"
@@ -216,6 +226,7 @@ class EndoDepthAnything3NetWrapper(torch.nn.Module):
                             assert self.model.ref_view_strategy == "first", \
                                 f"ref_view_strategy must be 'first' for multi-frame depth extraction, got {self.model.ref_view_strategy}"
                             depth_raw = depth_raw[:, 0:1, :, :]  # (B, 1, H, W)
+                            conf = conf[:, 0:1, :, :]  # (B, 1, H, W)
 
                         # ///////////////////////////////////////////
                         # ============================================================
@@ -254,6 +265,7 @@ class EndoDepthAnything3NetWrapper(torch.nn.Module):
                         # Find matching scale in self.scales
                         if scale_idx in self.scales:
                             outputs[("disp", scale_idx)] = disp
+                            outputs[("conf", 0, scale_idx)] = conf
                     else:
                         available_keys = list(output.keys()) if hasattr(output, 'keys') else [k for k in dir(output) if not k.startswith('_')]
                         raise AttributeError(f"Multi-scale output {depth_key} not found in model output. "
@@ -263,11 +275,14 @@ class EndoDepthAnything3NetWrapper(torch.nn.Module):
                 for scale_idx in range(4):
                     scale_name = str(scale_idx)
                     disp_key = f"{head_main}_{scale_name}"
+                    conf_key = f"{head_main}_conf_{scale_name}"
                     
                     # Check if key exists in output (AddictDict supports both dict and attr access)
                     if disp_key in output or hasattr(output, disp_key):
                         disp = output[disp_key] if disp_key in output else getattr(output, disp_key)  # (B, S, H, W)
+                        conf = output[conf_key] if conf_key in output else getattr(output, conf_key)  # (B, S, H, W)
                         assert disp.dim() == 4, f"Expected disp_{scale_name} shape (B, S, H, W), but got shape: {disp.shape}"
+                        assert conf.dim() == 4, f"conf_{scale_name} shape: {conf.shape}"
                         
                         if single_frame_input:
                             assert disp.shape[1] == 1, f"disp_{scale_name} shape: {disp.shape}"
@@ -277,10 +292,12 @@ class EndoDepthAnything3NetWrapper(torch.nn.Module):
                             assert self.model.ref_view_strategy == "first", \
                                 f"ref_view_strategy must be 'first' for multi-frame disp extraction, got {self.model.ref_view_strategy}"
                             disp = disp[:, 0:1, :, :]  # (B, 1, H, W)
+                            conf = conf[:, 0:1, :, :]  # (B, 1, H, W)
 
                         # Map scale_idx to self.scales
                         if scale_idx in self.scales:
                             outputs[("disp", scale_idx)] = disp
+                            outputs[("conf", 0, scale_idx)] = conf
                     else:
                         available_keys = list(output.keys()) if hasattr(output, 'keys') else [k for k in dir(output) if not k.startswith('_')]
                         raise AttributeError(f"Multi-scale output {disp_key} not found in model output. "
@@ -288,7 +305,10 @@ class EndoDepthAnything3NetWrapper(torch.nn.Module):
         else:
             if self.da3_depth_regression_target == "depth2disp":
                 depth = output.depth
+                conf = output.depth_conf
                 assert depth.dim() == 4, f"depth shape: {depth.shape}"
+                assert conf.dim() == 4, f"conf shape: {conf.shape}"
+                
                 if single_frame_input:
                     assert depth.shape[1] == 1, f"depth shape: {depth.shape}"
                 
@@ -299,6 +319,7 @@ class EndoDepthAnything3NetWrapper(torch.nn.Module):
                         f"ref_view_strategy must be 'first' for multi-frame depth extraction, got {self.model.ref_view_strategy}"
                     # Extract depth for frame 0 (first frame in spatial dimension)
                     depth = depth[:, 0:1, :, :]  # (B, 1, H, W) - keep dim for consistency
+                    conf = conf[:, 0:1, :, :]  # (B, 1, H, W)
 
                 # Exp before 19.Dec improperly use self.min_depth
                 # depth_clamped = torch.clamp(depth, min=self.min_depth, max=self.max_depth)
@@ -316,6 +337,7 @@ class EndoDepthAnything3NetWrapper(torch.nn.Module):
 
                         outputs[("disp", scale)] = disp
                         outputs[("depth_native", 0, scale)] = depth
+                        outputs[("conf", 0, scale)] = conf
 
                     else:
                         h_scale = H // (2 ** scale)
@@ -327,13 +349,19 @@ class EndoDepthAnything3NetWrapper(torch.nn.Module):
                         depth_scale = F.interpolate(depth, size=(h_scale, w_scale), 
                                                 mode="bilinear", align_corners=True)
                         outputs[("depth_native", 0,scale)] = depth_scale
+                        
+                        conf_scale = F.interpolate(conf, size=(h_scale, w_scale),
+                                                mode="bilinear", align_corners=True)
+                        outputs[("conf", 0, scale)] = conf_scale
 
             elif self.da3_depth_regression_target == "depth2disp_v3":
                 assert NotImplementedError("depth2disp_v3 is not implemented yet")
             elif self.da3_depth_regression_target == "disp":
                 disp = output.disp
+                conf = output.disp_conf
                 
                 assert disp.dim() == 4, f"Expected disp shape (B, S, H, W), but got shape: {disp.shape}"
+                assert conf.dim() == 4, f"conf shape: {conf.shape}"
 
                 if single_frame_input:
                     assert disp.shape[1] == 1, f"disp shape: {disp.shape}"
@@ -345,6 +373,7 @@ class EndoDepthAnything3NetWrapper(torch.nn.Module):
                         f"ref_view_strategy must be 'first' for multi-frame disp extraction, got {self.model.ref_view_strategy}"
                     # Extract disp for frame 0 (first frame in spatial dimension)
                     disp = disp[:, 0:1, :, :]  # (B, 1, H, W) - keep dim for consistency
+                    conf = conf[:, 0:1, :, :]  # (B, 1, H, W)
                 
                 assert 0, 'not fix yet'
                 # Interpolate to match input image size if needed
@@ -357,12 +386,16 @@ class EndoDepthAnything3NetWrapper(torch.nn.Module):
                 for scale in self.scales:
                     if scale == 0:
                         outputs[("disp", scale)] = disp
+                        outputs[("conf", 0, scale)] = conf
                     else:
                         h_scale = H // (2 ** scale)
                         w_scale = W // (2 ** scale)
                         disp_scale = F.interpolate(disp, size=(h_scale, w_scale), 
                                                 mode="bilinear", align_corners=True)
                         outputs[("disp", scale)] = disp_scale
+                        conf_scale = F.interpolate(conf, size=(h_scale, w_scale),
+                                                mode="bilinear", align_corners=True)
+                        outputs[("conf", 0, scale)] = conf_scale
             
             
         # Format intrinsics and pose outputs if available
@@ -505,10 +538,13 @@ class EndoDepthAnything3NetWrapper(torch.nn.Module):
                 for scale_idx in range(4):
                     scale_name = str(scale_idx)
                     depth_key = f"{head_main}_{scale_name}"
+                    conf_key = f"{head_main}_conf_{scale_name}"
                     
                     if depth_key in output or hasattr(output, depth_key):
                         depth = output[depth_key] if depth_key in output else getattr(output, depth_key)  # (B, S, H, W)
+                        conf = output[conf_key] if conf_key in output else getattr(output, conf_key)  # (B, S, H, W)
                         assert depth.dim() == 4, f"depth_{scale_name} shape: {depth.shape}"
+                        assert conf.dim() == 4, f"conf_{scale_name} shape: {conf.shape}"
                         
                         # Extract depth for specific frame
                         if not single_frame_input:
@@ -517,6 +553,7 @@ class EndoDepthAnything3NetWrapper(torch.nn.Module):
                             assert 0 <= index_in_spatial_S < depth.shape[1], \
                                 f"index_in_spatial_S ({index_in_spatial_S}) out of range [0, {depth.shape[1]})"
                             depth = depth[:, index_in_spatial_S:index_in_spatial_S+1, :, :]  # (B, 1, H, W)
+                            conf = conf[:, index_in_spatial_S:index_in_spatial_S+1, :, :]  # (B, 1, H, W)
                         
                         depth_clamped = torch.clamp(depth, min=MIN_DEPTH, max=MAX_DEPTH)
                         
@@ -528,15 +565,19 @@ class EndoDepthAnything3NetWrapper(torch.nn.Module):
                         disp = 1.0 / depth_clamped 
                         if scale_idx in self.scales:
                             outputs[("disp", frame_id, scale_idx)] = disp
+                            outputs[("conf", frame_id, scale_idx)] = conf
                             
             elif self.da3_depth_regression_target == "depth2disp_v3":
                 for scale_idx in range(4):
                     scale_name = str(scale_idx)
                     depth_key = f"{head_main}_{scale_name}"
+                    conf_key = f"{head_main}_conf_{scale_name}"
                     
                     if depth_key in output or hasattr(output, depth_key):
                         depth_raw = output[depth_key] if depth_key in output else getattr(output, depth_key)  # (B, S, H, W)
+                        conf = output[conf_key] if conf_key in output else getattr(output, conf_key)  # (B, S, H, W)
                         assert depth_raw.dim() == 4, f"depth_{scale_name} shape: {depth_raw.shape}"
+                        assert conf.dim() == 4, f"conf_{scale_name} shape: {conf.shape}"
                         
                         # Extract depth for specific frame
                         if not single_frame_input:
@@ -545,6 +586,7 @@ class EndoDepthAnything3NetWrapper(torch.nn.Module):
                             assert 0 <= index_in_spatial_S < depth_raw.shape[1], \
                                 f"index_in_spatial_S ({index_in_spatial_S}) out of range [0, {depth_raw.shape[1]})"
                             depth_raw = depth_raw[:, index_in_spatial_S:index_in_spatial_S+1, :, :]  # (B, 1, H, W)
+                            conf = conf[:, index_in_spatial_S:index_in_spatial_S+1, :, :]  # (B, 1, H, W)
                         
                         # Scale-free depth processing
                         B_frame = depth_raw.shape[0]
@@ -563,15 +605,19 @@ class EndoDepthAnything3NetWrapper(torch.nn.Module):
                         disp = 1.0 / (depth_norm + 1e-6)
                         if scale_idx in self.scales:
                             outputs[("disp", frame_id, scale_idx)] = disp
+                            outputs[("conf", frame_id, scale_idx)] = conf
                             
             elif self.da3_depth_regression_target == "disp":
                 for scale_idx in range(4):
                     scale_name = str(scale_idx)
                     disp_key = f"{head_main}_{scale_name}"
+                    conf_key = f"{head_main}_conf_{scale_name}"
                     
                     if disp_key in output or hasattr(output, disp_key):
                         disp = output[disp_key] if disp_key in output else getattr(output, disp_key)  # (B, S, H, W)
+                        conf = output[conf_key] if conf_key in output else getattr(output, conf_key)  # (B, S, H, W)
                         assert disp.dim() == 4, f"Expected disp_{scale_name} shape (B, S, H, W), but got shape: {disp.shape}"
+                        assert conf.dim() == 4, f"conf_{scale_name} shape: {conf.shape}"
                         
                         # Extract disp for specific frame
                         if not single_frame_input:
@@ -580,15 +626,19 @@ class EndoDepthAnything3NetWrapper(torch.nn.Module):
                             assert 0 <= index_in_spatial_S < disp.shape[1], \
                                 f"index_in_spatial_S ({index_in_spatial_S}) out of range [0, {disp.shape[1]})"
                             disp = disp[:, index_in_spatial_S:index_in_spatial_S+1, :, :]  # (B, 1, H, W)
+                            conf = conf[:, index_in_spatial_S:index_in_spatial_S+1, :, :]  # (B, 1, H, W)
                         
                         if scale_idx in self.scales:
                             outputs[("disp", frame_id, scale_idx)] = disp
+                            outputs[("conf", frame_id, scale_idx)] = conf
         else:
             # Single-scale output
             # the direct output from DPT is dino_size_h_w
             if self.da3_depth_regression_target == "depth2disp":
                 depth = output.depth
+                conf = output.depth_conf
                 assert depth.dim() == 4, f"depth shape: {depth.shape}"
+                assert conf.dim() == 4, f"conf shape: {conf.shape}"
                 
                 # Extract depth for specific frame
                 if not single_frame_input:
@@ -597,6 +647,7 @@ class EndoDepthAnything3NetWrapper(torch.nn.Module):
                     assert 0 <= index_in_spatial_S < depth.shape[1], \
                         f"index_in_spatial_S ({index_in_spatial_S}) out of range [0, {depth.shape[1]})"
                     depth = depth[:, index_in_spatial_S:index_in_spatial_S+1, :, :]  # (B, 1, H, W)
+                    conf = conf[:, index_in_spatial_S:index_in_spatial_S+1, :, :]  # (B, 1, H, W)
                 
                 depth_clamped = torch.clamp(depth, min=MIN_DEPTH, max=MAX_DEPTH)
                 disp = 1.0 / depth_clamped
@@ -608,6 +659,7 @@ class EndoDepthAnything3NetWrapper(torch.nn.Module):
                     if scale == 0:
                         outputs[("disp", frame_id, scale)] = disp
                         outputs[("depth_native", frame_id, scale)] = depth
+                        outputs[("conf", frame_id, scale)] = conf
                     else:
                         h_scale = H // (2 ** scale)
                         w_scale = W // (2 ** scale)
@@ -615,10 +667,14 @@ class EndoDepthAnything3NetWrapper(torch.nn.Module):
                         outputs[("disp", frame_id, scale)] = disp_scale
                         depth_scale = F.interpolate(depth, size=(h_scale, w_scale), mode="bilinear", align_corners=True)
                         outputs[("depth_native", frame_id, scale)] = depth_scale
+                        conf_scale = F.interpolate(conf, size=(h_scale, w_scale), mode="bilinear", align_corners=True)
+                        outputs[("conf", frame_id, scale)] = conf_scale
                         
             elif self.da3_depth_regression_target == "disp":
                 disp = output.disp
+                conf = output.disp_conf
                 assert disp.dim() == 4, f"Expected disp shape (B, S, H, W), but got shape: {disp.shape}"
+                assert conf.dim() == 4, f"conf shape: {conf.shape}"
                 
                 # Extract disp for specific frame
                 if not single_frame_input:
@@ -627,6 +683,7 @@ class EndoDepthAnything3NetWrapper(torch.nn.Module):
                     assert 0 <= index_in_spatial_S < disp.shape[1], \
                         f"index_in_spatial_S ({index_in_spatial_S}) out of range [0, {disp.shape[1]})"
                     disp = disp[:, index_in_spatial_S:index_in_spatial_S+1, :, :]  # (B, 1, H, W)
+                    conf = conf[:, index_in_spatial_S:index_in_spatial_S+1, :, :]  # (B, 1, H, W)
                 
                 if disp.shape[-2:] != (256, 320):
                     disp = F.interpolate(disp, size=(256, 320), mode="bilinear", align_corners=True)
@@ -634,11 +691,14 @@ class EndoDepthAnything3NetWrapper(torch.nn.Module):
                 for scale in self.scales:
                     if scale == 0:
                         outputs[("disp", frame_id, scale)] = disp
+                        outputs[("conf", frame_id, scale)] = conf
                     else:
                         h_scale = H // (2 ** scale)
                         w_scale = W // (2 ** scale)
                         disp_scale = F.interpolate(disp, size=(h_scale, w_scale), mode="bilinear", align_corners=True)
                         outputs[("disp", frame_id, scale)] = disp_scale
+                        conf_scale = F.interpolate(conf, size=(h_scale, w_scale), mode="bilinear", align_corners=True)
+                        outputs[("conf", frame_id, scale)] = conf_scale
         
         return outputs
     
@@ -2399,7 +2459,7 @@ class Trainer:
             else:
                 # the native target of head is depth
                 assert self.opt.depth_model_type == 'depthanything3'
-                assert ("depth_native", 0, scale) in outputs
+                # assert ("depth_native", 0, scale) in outputs
                 # depth = outputs[("depth_native", 0, scale)]
 
                 if self.opt.da3_depth_regression_target in ["depth2disp_v3"]:

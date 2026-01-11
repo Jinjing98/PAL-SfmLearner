@@ -60,7 +60,7 @@ net:
 #   features: &head_features 128
 #   out_channels: &head_out_channels [96, 192, 384, 768]
 #   activation: "exp"
-#   head_names: ["depth", "depth_conf"]
+#   head_names: ["depth", "ray"]
 
 # dpt head
 head:

@@ -26,9 +26,19 @@ def visualize_disp(disp):
     colormapped_im = np.transpose(colormapped_im, (2, 0, 1))
     return colormapped_im
 
+def visualize_expp1_conf(conf_expp1):
+    conf_expp1 = conf_expp1.squeeze()
+    x = conf_expp1.cpu().detach().numpy()
+    vmax = np.percentile(x, 95)
+    normalizer = mpl.colors.Normalize(vmin=x.min(), vmax=vmax)
+    mapper = cm.ScalarMappable(norm=normalizer, cmap='magma')
+    colormapped_im = (mapper.to_rgba(x)[:, :, :3] * 255).astype(np.uint8)
+    colormapped_im = np.transpose(colormapped_im, (2, 0, 1))
+    return colormapped_im
+
 
 def visualize_depth(depth):
-    """Visualize depth map
+    """Visualize depth map as grayscale image
     Args:
         depth: (H, W) or (1, H, W) depth tensor
     Returns:
@@ -36,12 +46,11 @@ def visualize_depth(depth):
     """
     depth = depth.squeeze()
     x = depth.cpu().detach().numpy()
-    vmax = np.percentile(x, 95)
 
-    normalizer = mpl.colors.Normalize(vmin=x.min(), vmax=vmax)
-    mapper = cm.ScalarMappable(norm=normalizer, cmap='magma')
-    colormapped_im = (mapper.to_rgba(x)[:, :, :3] * 255).astype(np.uint8)
-    colormapped_im = np.transpose(colormapped_im, (2, 0, 1))
+    x_norm = (x - x.min()) / (x.max() - x.min())
+    # Convert to grayscale uint8 and replicate to 3 channels
+    gray = (x_norm * 255).astype(np.uint8)
+    colormapped_im = np.stack([gray, gray, gray], axis=0)  # (3, H, W)
     return colormapped_im
 
 
@@ -455,6 +464,15 @@ def _process_image_key(key, merged_dict, sample_idx, img_height):
         
     elif "depth" in key_lower and "err" not in key_lower:
         vis_img = visualize_depth(img)
+        vis_img = np.transpose(vis_img, (1, 2, 0))
+        H, W = vis_img.shape[:2]
+        aspect_ratio = W / H
+        img_width = int(img_height * aspect_ratio)
+        vis_img = cv2.resize(vis_img, (img_width, img_height))
+        return vis_img, key_str
+    
+    elif "conf" in key_lower:
+        vis_img = visualize_expp1_conf(img)
         vis_img = np.transpose(vis_img, (1, 2, 0))
         H, W = vis_img.shape[:2]
         aspect_ratio = W / H

@@ -294,7 +294,7 @@ class DualDPTMultiScale(DualDPT):
                 main_pred = self._apply_activation_single(fmap_main[..., :-1], self.activation)
                 main_conf = self._apply_activation_single(fmap_main[..., -1], self.conf_activation)
                 outs[f"{self.head_main}_{scale_name}"] = main_pred.squeeze(-1)
-                outs[f"{self.head_main}_conf_{scale_name}"] = main_conf
+                outs[f"{self.head_main}_conf_{scale_name}"] = main_conf.squeeze(-1)
                 
                 # Aux head
                 aux_logits = getattr(self, f'conv_depth_aux_{scale_idx + 1}')(path_aux)
@@ -307,7 +307,7 @@ class DualDPTMultiScale(DualDPT):
                 aux_pred = self._apply_activation_single(fmap_aux[..., :-1], "linear")
                 aux_conf = self._apply_activation_single(fmap_aux[..., -1], self.conf_activation)
                 outs[f"{self.head_aux}_{scale_name}"] = aux_pred
-                outs[f"{self.head_aux}_conf_{scale_name}"] = aux_conf
+                # outs[f"{self.head_aux}_conf_{scale_name}"] = aux_conf
             
             return outs
         else:

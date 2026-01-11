@@ -69,7 +69,7 @@ head:
   features: &head_features 64
   out_channels: &head_out_channels [48, 96, 192, 384]
   activation: "exp"
-  head_names: ["depth", "depth_conf"]
+  head_names: ["depth", "ray"]
   
   # activation: "sigmoid"
   # head_names: ["disp", "depth_conf"]
