@@ -1316,6 +1316,9 @@ class Trainer:
         elif self.opt.pose_model_type == "posecnn":
             self.models["pose"] = PoseCNN(
                 self.num_input_frames if self.opt.pose_model_input == "all" else 2)
+        
+        elif self.opt.pose_model_type == "da3_encoder_internal":
+            assert NotImplementedError("da3_encoder_internal is not implemented")
 
         elif self.opt.pose_model_type == "da3_internal":
             # Sanity check: depth_model must have cam_dec module
@@ -2642,6 +2645,39 @@ class Trainer:
 
         return reprojection_loss
 
+    def compute_direct_edge_loss(self, inputs, outputs, scale):
+        enable_teacher_student = getattr(self.opt, 'enable_teacher_student_training', False)
+        use_hfd = enable_teacher_student and scale == 0
+        
+        if not use_hfd or ("DA3_base_teacher_depth", 0, 0) not in inputs:
+            return None
+        
+        teacher_depth = inputs[("DA3_base_teacher_depth", 0, 0)]
+        student_depth = outputs[("depth", 0, scale)]
+        gt_depth = inputs.get(("depth_gt", 0, 0), None)
+        
+        td_grad_x = torch.abs(teacher_depth[:, :, :, :-1] - teacher_depth[:, :, :, 1:])
+        sd_grad_x = torch.abs(student_depth[:, :, :, :-1] - student_depth[:, :, :, 1:])
+        
+        td_grad_y = torch.abs(teacher_depth[:, :, :-1, :] - teacher_depth[:, :, 1:, :])
+        sd_grad_y = torch.abs(student_depth[:, :, :-1, :] - student_depth[:, :, 1:, :])
+
+
+        edge_weight_x = torch.exp(td_grad_x)
+        loss_x = (torch.abs(td_grad_x - sd_grad_x) * edge_weight_x).mean()
+
+        # Y方向处理
+        edge_weight_y = torch.exp(td_grad_y)
+        loss_y = (torch.abs(td_grad_y - sd_grad_y) * edge_weight_y).mean()
+        print(f"fake edge loss as hf, replace hf...")
+
+        return {'loss': (loss_x + loss_y) / 2.0,
+            'loss_hf': 0.0,
+            'loss_topo': 0.0,
+            'loss_recon': 0.0,
+        }
+
+
     def compute_hfd_loss(self, inputs, outputs, scale):
         """
         Compute High-Frequency Distillation (HFD) losses.
@@ -2821,6 +2857,8 @@ class Trainer:
             use_hfd = enable_teacher_student and scale == 0
             
             hfd_losses = self.compute_hfd_loss(inputs, outputs, scale)
+            # quick_exp:
+            # hfd_losses = self.compute_direct_edge_loss(inputs, outputs, scale)
             if hfd_losses is not None:
                 loss_hf = hfd_losses['loss_hf']
                 loss_topo = hfd_losses['loss_topo']
