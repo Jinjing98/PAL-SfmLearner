@@ -427,16 +427,16 @@ def evaluate(opt):
                 cv2.imwrite(vis_file_name, vis_pred_depth)
                 print(f"-> Saving visualized depth to {vis_file_name}")
 
-                # also save the confidence map as gray image
-                vis_conf_filename = f"{vis_filename_base}_conf.png"
-                vis_conf_file_name = os.path.join(vis_dir, vis_conf_filename)
-                # print("pred_conf min max: ", pred_conf.min(), pred_conf.max())
-                # expp1 activation
-                pred_conf_gray = (pred_conf - pred_conf.min()) / (pred_conf.max() - pred_conf.min()) * 255.0
-                pred_conf_gray = pred_conf_gray.astype(np.uint8)
-                cv2.imwrite(vis_conf_file_name, pred_conf_gray)
-                # cv2.imwrite(vis_conf_file_name, pred_conf*255.0,)
-                # print(f"-> Saving visualized confidence map to {vis_conf_file_name}")                
+                if opt.model_type == 'depthanything3':
+                    # also save the confidence map as gray image
+                    vis_conf_filename = f"{vis_filename_base}_conf.png"
+                    vis_conf_file_name = os.path.join(vis_dir, vis_conf_filename)
+                    # expp1 activation
+                    pred_conf_gray = (pred_conf - pred_conf.min()) / (pred_conf.max() - pred_conf.min()) * 255.0
+                    pred_conf_gray = pred_conf_gray.astype(np.uint8)
+                    cv2.imwrite(vis_conf_file_name, pred_conf_gray)
+                    # cv2.imwrite(vis_conf_file_name, pred_conf*255.0,)
+                    # print(f"-> Saving visualized confidence map to {vis_conf_file_name}")                
             
             pred_depth = pred_depth[mask]
             gt_depth = gt_depth[mask]
