@@ -47,13 +47,20 @@ python /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/evaluate_depth_endo
 --model_type endodac --load_weights_folder /mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm/endodac/full_endodacB_9D_baseline_warmUp5k_1215_1153/models/weights_19 \
 --model_type afsfm --load_weights_folder /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/weights/af_pretrained/Model_trained_end_to_end \
 --model_type depthanything3 --load_weights_folder /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/weights/da3_placeholder \
+--model_type endodac --load_weights_folder /mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm/endodac/full_endodacB_angleaxis_baseline_1211_0028/models/weights_19 \
+--model_type endodac --load_weights_folder /mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm/endodac/eval_valset/full_endodacB_9D_baseline_1212_1642/models/weights_1 \
+--model_type endodac --load_weights_folder /mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm/endodac/eval_valset/full_endodacB_9D_baseline_1212_1642/models/weights_1 \
+--model_type depthanything3 --load_weights_folder /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/weights/da3_placeholder \
+--model_type endodac --load_weights_folder /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/weights/endodac_pretrained \
+--model_type afsfm --load_weights_folder /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/weights/af_pretrained/Model_trained_end_to_end \
+--test_data_file train_files.txt \
 --test_data_file d6_kf2_small.txt \
 --test_data_file test_files.txt \
---test_data_file train_files.txt \
---save_pred_disps_online \
---compute_metadata_stats \
---visualize_depth \
---test_data_file d6_kf2_small.txt \
+# --config_file /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/networks/configs/endo-da3-all-wowrapper-small.yaml \
+# --compute_metadata_stats \
+# --visualize_depth \
+# --save_pred_disps_online \
+
 # --load_gt_from_npz \
 # --visualize_depth \
 # --save_folder place_folder \

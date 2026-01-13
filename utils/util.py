@@ -72,7 +72,7 @@ def disp_to_depth_v2(disp, min_depth, max_depth, is_scaled_disp):
         # already in reasonable range w.r.t min_depth and max_depth
         scaled_disp = disp
     else:
-        assert disp.min() >= 0 and disp.max() <= 1, "disp should be in range [0, 1]"
+        assert disp.min() >= 0 and disp.max() <= 1, f"disp should be in range [0, 1], got {disp.min()} and {disp.max()}"
         # sigmoid output is in range [0, 1]
         min_disp = 1 / max_depth
         max_disp = 1 / min_depth

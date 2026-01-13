@@ -115,12 +115,27 @@ CUDA_VISIBLE_DEVICES=0 python /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLear
 --exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_dacDA2Base_baseline_fixedLoadingPretrained \
 --exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3GiantDepthLre05_depth2disp_extraLoraOnAttnProj_wMultiScaleD_correctLora \
 --num_epochs 30 \
---exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_extraLoraOnAttnProj_wMultiScaleD_trnFrameidDelta5_ep30 \
---exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_extraLoraOnAttnProj_wMultiScaleD_ep30_SeqInput_ep30 \
---exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_extraLoraOnAttnProj_wMultiScaleD_ep30 \
---exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_extraLoraOnAttnProj_wMultiScaleD_trnFrameidDelta5_ep30 \
---exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_extraLoraOnAttnProj_wMultiScaleD_trnFrameidDelta5_w01DepthConsistency_ep30 \
---train_frame_ids 0 -5 5 \
+--exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_extraLoraOnAttnQKV6TO11_wMultiScaleD_ep30 \
+--exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_extraLoraOnAttnQKV6TO11_wMultiScaleD_teacher_student \
+--exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_extraLoraOnAttnQKV6TO11_wMultiScaleD_ep30_repeatibility_NOTenforce256320explicitly \
+--exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_extraLoraOnAttnQKV6TO11_wMultiScaleD_ep30_seqInput \
+--exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_extraLoraOnAttnQKV6TO11_wMultiScaleD_ep30_teacher_student \
+--photo_reprojection 1.0 \
+--exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_extraLoraOnAttnQKV6TO11_wMultiScaleD_ep30_confAwareW1_defW1 \
+--exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_extraLoraOnAttnQKV6TO11_wMultiScaleD_ep30_seqInput_delta2total5 \
+--exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_extraLoraOnAttnQKV6TO11_wMultiScaleD_ep30_explicitFlowGeometryBERHU_SCALE0ONLY_W001_reporj_W1 \
+--explicit_flow_geometry 0.01 \
+
+# --enable_teacher_student_training \
+# --train_frame_ids 0 -1 1 -2 2 \
+# --enable_seq_inputs \
+
+# --exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_extraLoraOnAttnProj_wMultiScaleD_trnFrameidDelta5_ep30 \
+# --exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_extraLoraOnAttnProj_wMultiScaleD_ep30_SeqInput_ep30 \
+# --exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_extraLoraOnAttnProj_wMultiScaleD_ep30 \
+# --exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_extraLoraOnAttnProj_wMultiScaleD_trnFrameidDelta5_ep30 \
+# --exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_extraLoraOnAttnProj_wMultiScaleD_trnFrameidDelta5_w01DepthConsistency_ep30 \
+# --train_frame_ids 0 -5 5 \
 # --exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3Small_depth2disp_extraLoraOnAttnProj_wMultiScaleD \
 # --photo_reprojection 1.0 \
 # --explicit_flow_type pose_flow_trans_Huber \
@@ -162,6 +177,7 @@ CUDA_VISIBLE_DEVICES=0 python /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLear
 # --depth_consistency_weight 0.1 \
 # --enable_teacher_student_training \
 
+# --photo_reprojection_conf_aware 1.0 \
 
 # --photo_reprojection 0.0 \
 # --explicit_flow_geometry 1.0 \
@@ -178,6 +194,27 @@ CUDA_VISIBLE_DEVICES=0 python /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLear
 # explict OF supervision?
 # raw_disp; then skip scale in disp2depth
 
+
+# da3 12.Jan
+# 127625 full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_extraLoraOnAttnQKV6TO11_wMultiScaleD_ep30_seqInput_delta2total5
+# 127629 full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_extraLoraOnAttnQKV6TO11_wMultiScaleD_ep30_teacher_student_directEdgeRelaceHF
+# 127632 full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_extraLoraOnAttnQKV6TO11_wMultiScaleD_ep30_explicitFlowGeometryBERHU_SCALE0ONLY_W001_reporj_W1
+
+
+# da3 11.01
+#127452 full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_extraLoraOnAttnQKV6TO11_wMultiScaleD_ep30_seqInput
+#127453 full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_extraLoraOnAttnQKV6TO11_wMultiScaleD_ep30_teacher_student
+#127450 full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_extraLoraOnAttnQKV6TO11_wMultiScaleD_ep30_repeatibility
+# 127457 full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_extraLoraOnAttnQKV6TO11_wMultiScaleD_ep30_confAwareW1_defW1
+# 127458 full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_extraLoraOnAttnQKV6TO11_wMultiScaleD_ep30_confAwareW1Only
+#127460 full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_extraLoraOnAttnQKV6TO11_wMultiScaleD_ep30_seqInput_delta2total5
+
+# DA3:
+# better repeatibility: attn.qkv(before extra was on attn.proj) and it is only 6-11 layer.
+#127114 full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_extraLoraOnAttnQKV_wMultiScaleD_ep30
+#127291 full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_extraLoraOnAttnQKV6TO11_wMultiScaleD_dino252_322
+
+#///////////////drop these exp: ;apply lora on attn.proj; dificult for repeatibility//////////////////////////////////////////
 # DA3: delta5_singleframe_w01DepthConsistency
 #126906 full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_extraLoraOnAttnProj_wMultiScaleD_trnFrameidDelta5_w01DepthConsistency_ep30
 # best DA3
@@ -185,13 +222,13 @@ CUDA_VISIBLE_DEVICES=0 python /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLear
 # 126816 full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_extraLoraOnAttnProj_wMultiScaleD_ep30_SeqInput_ep30
 # 126834 full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_extraLoraOnAttnProj_wMultiScaleD_ep30 (wrongly named as delta5 )
 
-
 # 126603 full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_extraLoraOnAttnProj_wMultiScaleD_trnFrameidDelta5_ep30
 # 126562 full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_extraLoraOnAttnProj_wMultiScaleD_seqInput
 # 126325 full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_extraLoraOnAttnProj_wMultiScaleD_trnFrameidDelta5_seqInput
 # 126494 full_endodacB_angleaxis_baseline_OFrawSup_depthDA3Giant_depth2disp_extraLoraOnAttnProj_wMultiScaleD (in fact no lora==fz the pretrained gaint depth)
 # 126584 full_endodacB_angleaxis_baseline_OFrawSup_depthDA3Giant_depth2disp_extraLoraOnAttnProj_wMultiScaleD 
 # 126468 full_endodacB_angleaxis_baseline_OFrawSup_depthDA3Small_depth2disp_extraLoraOnAttnProj_wMultiScaleD
+#/////////////////////////////////////////////////////////
 
 # endoDAC baseline
 # 126326 full_endodacB_angleaxis_baseline_OFrawSup_dacDA2Base_baseline(infact scratching DA2 arch without loading pretrained weights)
@@ -199,6 +236,7 @@ CUDA_VISIBLE_DEVICES=0 python /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLear
 
 # DA3
 # 126153 full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2dispV3_medianNormDepthNativePhoto_wMultiScaleD
+# a random best exp
 # 126160 full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_extraLoraOnAttnProj_wMultiScaleD
 # X126161 full_endodacB_angleaxis_baseline_OFrawSup_ofRaftLastIterOnly_detachLowRes_explicitFlowGeometryHUBER_transflowOnlySinceEP5_W01_reporj_W1
 
