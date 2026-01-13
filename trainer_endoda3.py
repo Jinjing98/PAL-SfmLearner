@@ -2887,12 +2887,12 @@ class Trainer:
             # Apply weights and add to total loss
             loss += self.opt.photo_reprojection * (loss_reprojection / num_source_frames)
             loss += self.opt.photo_reprojection_conf_aware * (loss_conf_aware_reprojection / num_source_frames)
-            # Apply explicit flow geometry loss only after warm-up epoch
-            warmup_epoch = getattr(self.opt, 'explicit_flow_geometry_warmup_epoch', 5)
-            current_epoch = getattr(self, 'epoch', 0)  # Default to 0 if epoch not set (e.g., during initialization)
-            if current_epoch >= warmup_epoch and \
-                ('trans' in self.opt.explicit_flow_type or 'rot' in self.opt.explicit_flow_type):
-                loss += self.opt.explicit_flow_geometry * (loss_explict_geo / num_source_frames)
+            # # Apply explicit flow geometry loss only after warm-up epoch
+            # warmup_epoch = getattr(self.opt, 'explicit_flow_geometry_warmup_epoch', 5)
+            # current_epoch = getattr(self, 'epoch', 0)  # Default to 0 if epoch not set (e.g., during initialization)
+            # if current_epoch >= warmup_epoch and \
+            #     ('trans' in self.opt.explicit_flow_type or 'rot' in self.opt.explicit_flow_type):
+            loss += self.opt.explicit_flow_geometry * (loss_explict_geo / num_source_frames)
             loss += self.opt.transform_constraint * (loss_transform / num_source_frames)
             loss += self.opt.transform_smoothness * (loss_cvt / num_source_frames) 
             loss += self.opt.disparity_smoothness * smooth_loss / (2 ** scale)

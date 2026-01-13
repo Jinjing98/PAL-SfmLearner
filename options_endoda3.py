@@ -246,10 +246,10 @@ class MonodepthOptions:
                                  type=float,
                                  help="explicit flow-based geometry loss weight (pose_flow vs optical flow)",
                                  default=0.0)
-        self.parser.add_argument("--explicit_flow_geometry_warmup_epoch",
-                                 type=int,
-                                 help="epoch to start applying explicit flow geometry loss (warm-up period). Loss is only applied after this epoch. Default: 5",
-                                 default=5)
+        # self.parser.add_argument("--explicit_flow_geometry_warmup_epoch",
+        #                          type=int,
+        #                          help="epoch to start applying explicit flow geometry loss (warm-up period). Loss is only applied after this epoch. Default: 5",
+        #                          default=5)
         self.parser.add_argument("--explicit_flow_type",
                                  type=str,
                                  help="type of explicit flow: 'pose_flow_trans' (pose_flow_trans vs optical flow) or 'pose_flow' (pose_flow vs optical flow)",
