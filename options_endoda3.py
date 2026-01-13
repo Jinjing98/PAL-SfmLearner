@@ -254,7 +254,7 @@ class MonodepthOptions:
                                  type=str,
                                  help="type of explicit flow: 'pose_flow_trans' (pose_flow_trans vs optical flow) or 'pose_flow' (pose_flow vs optical flow)",
                                  choices=['pose_flow_trans_Huber','pose_flow_Berhu','pose_flow_Huber'],
-                                 default='pose_flow_trans_Huber')
+                                 default='pose_flow_Berhu')
         self.parser.add_argument("--of_supervised_with_which",
                                  type=str,
                                  help="what to use for optical flow supervision: 'outputs_refined' (outputs['refined']) or 'inputs_color'",

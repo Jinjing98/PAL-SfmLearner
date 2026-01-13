@@ -1977,8 +1977,10 @@ class Trainer:
                 loss_registration += (
                     self.compute_reprojection_loss(outputs[("registration", scale, frame_id)], supervision_target) * occu_mask_backward).sum() / occu_mask_backward.sum()
 
-            loss += loss_registration / 2.0
-            loss += self.opt.position_smoothness * (loss_smooth_registration / 2.0) / (2 ** scale)
+            # Normalize by number of source frames for consistent loss weighting
+            num_source_frames = max(len(self.current_frame_ids[1:]), 1)
+            loss += loss_registration / num_source_frames
+            loss += self.opt.position_smoothness * (loss_smooth_registration / num_source_frames) / (2 ** scale)
 
             total_loss += loss
             losses["loss/{}".format(scale)] = loss
@@ -2826,14 +2828,17 @@ class Trainer:
                 loss_hfd = hfd_losses['loss']
             #/////////////////////
 
+            # Normalize by number of source frames for consistent loss weighting
+            num_source_frames = max(len(self.current_frame_ids[1:]), 1)
+            
             # Log unweighted sub-losses (before applying weights)
-            losses["loss_reprojection/{}".format(scale)] = loss_reprojection / 2.0
-            losses["loss_conf_aware_reprojection/{}".format(scale)] = loss_conf_aware_reprojection / 2.0
-            losses["loss_explict_geo/{}".format(scale)] = loss_explict_geo / 2.0
-            losses["loss_transform/{}".format(scale)] = loss_transform / 2.0
-            losses["loss_cvt/{}".format(scale)] = loss_cvt / 2.0
+            losses["loss_reprojection/{}".format(scale)] = loss_reprojection / num_source_frames
+            losses["loss_conf_aware_reprojection/{}".format(scale)] = loss_conf_aware_reprojection / num_source_frames
+            losses["loss_explict_geo/{}".format(scale)] = loss_explict_geo / num_source_frames
+            losses["loss_transform/{}".format(scale)] = loss_transform / num_source_frames
+            losses["loss_cvt/{}".format(scale)] = loss_cvt / num_source_frames
             losses["loss_smooth/{}".format(scale)] = smooth_loss / (2 ** scale)
-            losses["loss_depth_consistency/{}".format(scale)] = loss_depth_consistency / max(len(self.current_frame_ids[1:]), 1)
+            losses["loss_depth_consistency/{}".format(scale)] = loss_depth_consistency / num_source_frames
             
             if use_hfd:
                 losses["loss_hf/{}".format(scale)] = loss_hf
@@ -2842,19 +2847,19 @@ class Trainer:
                 losses["loss_hfd/{}".format(scale)] = loss_hfd
 
             # Apply weights and add to total loss
-            loss += self.opt.photo_reprojection * (loss_reprojection / 2.0)
-            loss += self.opt.photo_reprojection_conf_aware * (loss_conf_aware_reprojection / 2.0)
+            loss += self.opt.photo_reprojection * (loss_reprojection / num_source_frames)
+            loss += self.opt.photo_reprojection_conf_aware * (loss_conf_aware_reprojection / num_source_frames)
             # Apply explicit flow geometry loss only after warm-up epoch
             warmup_epoch = getattr(self.opt, 'explicit_flow_geometry_warmup_epoch', 5)
             current_epoch = getattr(self, 'epoch', 0)  # Default to 0 if epoch not set (e.g., during initialization)
             if current_epoch >= warmup_epoch and \
                 ('trans' in self.opt.explicit_flow_type or 'rot' in self.opt.explicit_flow_type):
-                loss += self.opt.explicit_flow_geometry * (loss_explict_geo / 2.0)
-            loss += self.opt.transform_constraint * (loss_transform / 2.0)
-            loss += self.opt.transform_smoothness * (loss_cvt / 2.0) 
+                loss += self.opt.explicit_flow_geometry * (loss_explict_geo / num_source_frames)
+            loss += self.opt.transform_constraint * (loss_transform / num_source_frames)
+            loss += self.opt.transform_smoothness * (loss_cvt / num_source_frames) 
             loss += self.opt.disparity_smoothness * smooth_loss / (2 ** scale)
             # Add depth consistency loss with weight (default 0.1)
-            loss += self.opt.depth_consistency_weight * loss_depth_consistency
+            loss += self.opt.depth_consistency_weight * (loss_depth_consistency / num_source_frames)
             
             # Add HFD loss (only at scale 0)
             if use_hfd:
