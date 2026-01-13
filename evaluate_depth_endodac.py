@@ -239,6 +239,7 @@ def evaluate(opt):
         elif opt.model_type == 'depthanything3':
             # Load model from Hugging Face Hub
             depther = DepthAnything3.from_pretrained("depth-anything/da3-base")
+            # depther = DepthAnything3.from_pretrained("depth-anything/da3-small")
             depther.cuda()
             depther.eval()
         elif opt.model_type == 'afsfm':
@@ -349,7 +350,9 @@ def evaluate(opt):
                     input_color = data[("color", 0, 0)].cuda()
                     # convert torch tensor image to pil format as inference requires
                     input_color_pil = torchvision.transforms.ToPILImage()(input_color.squeeze(0))
-                    images = [input_color_pil, input_color_pil]  # List of image paths, PIL Images, or numpy arrays
+                    images = [input_color_pil]  # List of image paths, PIL Images, or numpy arrays
+                    # images = [input_color_pil]*3  # List of image paths, PIL Images, or numpy arrays
+                    # images = [input_color_pil]*5  # List of image paths, PIL Images, or numpy arrays
                     time_start = time.time()
                     prediction = depther.inference(
                         images,
@@ -359,8 +362,12 @@ def evaluate(opt):
                         # export_format="glb"  # Options: glb, npz, ply, mini_npz, gs_ply, gs_video
                     )# already in numpy array format
                     inference_time = time.time() - time_start
-                    pred_depth = prediction.depth.squeeze()[0].squeeze()# only get the 1st frame considering both frames equal
-                    pred_conf = prediction.conf.squeeze()[0].squeeze()
+                    if len(images) == 1:
+                        pred_depth = prediction.depth.squeeze()# single frame inference
+                        pred_conf = prediction.conf.squeeze()
+                    else:
+                        pred_depth = prediction.depth.squeeze()[0].squeeze()# single frame inference
+                        pred_conf = prediction.conf.squeeze()[0].squeeze()
                     if opt.save_pred_disps_online:
                         # Save immediately (online mode)
                         pred_filename_base = construct_gt_depth_filename(opt.eval_split, filenames, i, opt.ext_disp_to_eval)
@@ -494,6 +501,9 @@ def evaluate(opt):
     print("mean:" + ("&{: 12.3f}      " * 7).format(*mean_errors.tolist()) + "\\\\")
     # print("cls: " + ("& [{: 6.3f}, {: 6.3f}] " * 7).format(*cls.tolist()) + "\\\\")
     print("average inference time: {:0.1f} ms".format(np.mean(np.array(inference_times))*1000))
+    #fps
+    avg_inference_time_sec = np.mean(np.array(inference_times))
+    print("average inference speed: {:0.2f} FPS".format(1.0 / avg_inference_time_sec))
     print("\n-> Done!")
 
 if __name__ == "__main__":
