@@ -232,6 +232,8 @@ def evaluate(opt):
                 image_shape=opt.dino_resize_hw, pretrained_path=opt.pretrained_path,
                 residual_block_indexes=opt.residual_block_indexes,
                 include_cls_token=opt.include_cls_token)
+            # load from pretrained path
+            print("reload from pretrained path: ", opt.pretrained_path)
             model_dict = depther.state_dict()
             depther.load_state_dict({k: v for k, v in depther_dict.items() if k in model_dict})
             depther.cuda()
@@ -384,6 +386,11 @@ def evaluate(opt):
                 inference_time = 1
             inference_times.append(inference_time)
             
+            # skip err computation
+            if 'train_files.txt' in opt.test_data_file:
+                # just save the teacher depth
+                continue
+
             if opt.eval_split == 'endovis':
                 gt_depth = gt_depths[i]
                 # sequence = str(np.array(data['sequence'][0]))
