@@ -272,7 +272,7 @@ def construct_teacher_depth_filename(folder, frame_index):
     return filename
 
 
-def load_teacher_depth(teacher_depth_dir, folder, frame_index, height, width):
+def load_teacher_depth(teacher_depth_dir, folder, frame_index, height, width, apply_disp2depth=False):
     """
     Load teacher depth from pre-computed DepthAnything3 predictions.
     
@@ -282,6 +282,7 @@ def load_teacher_depth(teacher_depth_dir, folder, frame_index, height, width):
         frame_index: Frame index (1-indexed in SCARED)
         height: Target height for resizing
         width: Target width for resizing
+        apply_disp2depth: If True, apply disp2depth to the teacher disp(used for EndoDAC teacher)
     
     Returns:
         Teacher depth as numpy array (H, W) or None if not found
@@ -293,13 +294,19 @@ def load_teacher_depth(teacher_depth_dir, folder, frame_index, height, width):
         return None
     
     try:
-        teacher_depth = np.load(depth_path)
-        # assert teacher_depth.shape == (height, width), f"Teacher depth shape: {teacher_depth.shape} != ({height}, {width})"
-        assert teacher_depth.shape == (224, 280), f"Teacher depth shape: {teacher_depth.shape} != (224, 280)"
-
+        teacher_depth = np.load(depth_path) 
+        if apply_disp2depth:
+            # EndoDAC saved res. 
+            assert teacher_depth.shape == (256, 320), f"Teacher depth shape: {teacher_depth.shape} != (224, 280)"
+            from utils.util import disp_to_depth_v2
+            # direct inverse of disp label
+            _, teacher_depth = disp_to_depth_v2(teacher_depth, min_depth=None, max_depth=None, is_scaled_disp=True)
+        else:
+            # native DA3 output 224,280
+            assert teacher_depth.shape == (224, 280), f"Teacher depth shape: {teacher_depth.shape} != (224, 280)"
         # resize as the output depth from head is in  256 320
-        import cv2
-        teacher_depth = cv2.resize(teacher_depth, (width, height), interpolation=cv2.INTER_NEAREST)
+            import cv2
+            teacher_depth = cv2.resize(teacher_depth, (width, height), interpolation=cv2.INTER_LINEAR)
 
         return teacher_depth.astype(np.float32)
     except Exception as e:

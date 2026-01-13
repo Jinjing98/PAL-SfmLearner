@@ -2645,37 +2645,164 @@ class Trainer:
 
         return reprojection_loss
 
-    def compute_direct_edge_loss(self, inputs, outputs, scale):
-        enable_teacher_student = getattr(self.opt, 'enable_teacher_student_training', False)
-        use_hfd = enable_teacher_student and scale == 0
+    # def compute_direct_edge_loss(self, inputs, outputs, scale):
+    #     enable_teacher_student = getattr(self.opt, 'enable_teacher_student_training', False)
+    #     use_hfd = enable_teacher_student and scale == 0
         
-        if not use_hfd or ("DA3_base_teacher_depth", 0, 0) not in inputs:
+    #     if not use_hfd or ("DA3_base_teacher_depth", 0, 0) not in inputs:
+    #         return None
+        
+    #     teacher_depth = inputs[("DA3_base_teacher_depth", 0, 0)]
+    #     student_depth = outputs[("depth", 0, scale)]
+    #     gt_depth = inputs.get(("depth_gt", 0, 0), None)
+        
+    #     td_grad_x = torch.abs(teacher_depth[:, :, :, :-1] - teacher_depth[:, :, :, 1:])
+    #     sd_grad_x = torch.abs(student_depth[:, :, :, :-1] - student_depth[:, :, :, 1:])
+        
+    #     td_grad_y = torch.abs(teacher_depth[:, :, :-1, :] - teacher_depth[:, :, 1:, :])
+    #     sd_grad_y = torch.abs(student_depth[:, :, :-1, :] - student_depth[:, :, 1:, :])
+
+
+    #     edge_weight_x = torch.exp(td_grad_x)
+    #     loss_x = (torch.abs(td_grad_x - sd_grad_x) * edge_weight_x).mean()
+
+    #     # Y方向处理
+    #     edge_weight_y = torch.exp(td_grad_y)
+    #     loss_y = (torch.abs(td_grad_y - sd_grad_y) * edge_weight_y).mean()
+    #     print(f"fake edge loss as hf, replace hf...")
+
+    #     return {'loss': (loss_x + loss_y) / 2.0,
+    #         'loss_hf': 0.0,
+    #         'loss_topo': 0.0,
+    #         'loss_recon': 0.0,
+    #     }
+
+    def _scale_invarient_depth_diff(self, depth_gt, depth):
+        """
+        Compute scale-invariant depth loss using median scaling.
+        
+        Args:
+            depth_gt: Ground truth depth (B, 1, H, W) - typically from teacher (no grad)
+            depth: Predicted depth (B, 1, H, W) - from student (with grad)
+        
+        Returns:
+            Dictionary with loss_distill_direct
+        
+        Note: Gradient flows through 'depth' in two paths:
+            1. Direct path: depth -> depth_aligned -> loss
+            2. Scale path: depth -> ratio -> s -> depth_aligned -> loss
+        """
+        mask = (depth_gt > 0) & (depth > 0)
+        
+        if mask.sum() == 0:
+            return {'loss_distill_direct': torch.tensor(0.0, device=depth.device, requires_grad=True)}
+        
+        ratio = depth_gt[mask] / (depth[mask] + 1e-8)
+        s = torch.median(ratio)
+        
+        depth_aligned = depth * s
+        loss = torch.mean(torch.abs(depth_aligned[mask] - depth_gt[mask]))
+        return {'loss_distill_direct': loss}
+
+
+    def _affine_invarient_depth_diff(self, depth_gt_DAC, depth_gt_DA3, depth, patch_size = 8):
+        """
+        Compute affine-invariant depth loss using patch-wise affine alignment.
+        
+        Args:
+            depth_gt_DAC: Reference depth from EndoDAC teacher (B, 1, H, W) - no grad
+            depth_gt_DA3: Depth from DA3 teacher to be aligned (B, 1, H, W) - no grad
+            depth: Predicted student depth (B, 1, H, W) - with grad
+        
+        Returns:
+            Dictionary with loss_distill_direct_with_affine
+        
+        Note: Affine alignment is applied to teacher depths (no grad needed).
+              Gradient only flows through student 'depth' via the final loss.
+        """
+        B, C, H, W = depth_gt_DA3.shape
+        eps = 1e-6
+        
+        # Assert dimensions are multiples of patch_size (no padding)
+        assert H % patch_size == 0, f"Height {H} must be divisible by affine_window {patch_size}"
+        assert W % patch_size == 0, f"Width {W} must be divisible by affine_window {patch_size}"
+        
+        # Reshape to patches
+        num_patches_h = H // patch_size
+        num_patches_w = W // patch_size
+        
+        # (B, C, num_patches_h, patch_size, num_patches_w, patch_size)
+        target_patches = depth_gt_DAC.view(B, C, num_patches_h, patch_size, num_patches_w, patch_size)
+        source_patches = depth_gt_DA3.view(B, C, num_patches_h, patch_size, num_patches_w, patch_size)
+        
+        # Flatten patches: (B, C, num_patches_h, num_patches_w, patch_size * patch_size)
+        target_patches_flat = target_patches.permute(0, 1, 2, 4, 3, 5).contiguous()
+        target_patches_flat = target_patches_flat.view(B, C, num_patches_h, num_patches_w, patch_size * patch_size)
+        
+        source_patches_flat = source_patches.permute(0, 1, 2, 4, 3, 5).contiguous()
+        source_patches_flat = source_patches_flat.view(B, C, num_patches_h, num_patches_w, patch_size * patch_size)
+        
+        # Create valid mask (both depths should be positive)
+        valid_patches_target = (target_patches_flat > 0).float()
+        valid_patches_source = (source_patches_flat > 0).float()
+        valid_patches_mask = valid_patches_target * valid_patches_source
+        
+        # Count valid pixels per patch
+        num_valid = valid_patches_mask.sum(dim=-1, keepdim=True)  # (B, C, num_patches_h, num_patches_w, 1)
+        
+        # Mean
+        target_mean = (target_patches_flat * valid_patches_mask).sum(dim=-1, keepdim=True) / num_valid+eps
+        source_mean = (source_patches_flat * valid_patches_mask).sum(dim=-1, keepdim=True) / num_valid+eps
+        
+        # Center the patches
+        target_centered = (target_patches_flat - target_mean) * valid_patches_mask
+        source_centered = (source_patches_flat - source_mean) * valid_patches_mask
+        
+        # Covariance & Variance
+        target_source_cov = (target_centered * source_centered).sum(dim=-1, keepdim=True) / num_valid+eps
+        source_var = (source_centered ** 2).sum(dim=-1, keepdim=True) / num_valid+eps
+        
+        # Compute alpha and beta (closed-form least squares solution)
+        alpha = target_source_cov / (source_var + eps)
+        alpha = torch.clamp(alpha, min=0.01)  # Constrain alpha to avoid negative values
+        beta = target_mean - alpha * source_mean
+        
+        # If patch is invalid, set alpha=1, beta=0 (no transformation)
+        alpha = alpha * valid_patches_mask + (1 - valid_patches_mask)
+        beta = beta * valid_patches_mask
+        
+        # Apply affine transformation to DA3 teacher depth (source patches)
+        source_patches_aligned = alpha * source_patches_flat + beta
+        
+        # Reshape back to image: (B, C, num_patches_h, num_patches_w, patch_size * patch_size)
+        # -> (B, C, H, W)
+        source_patches_aligned = source_patches_aligned.view(B, C, num_patches_h, num_patches_w, patch_size, patch_size)
+        source_patches_aligned = source_patches_aligned.permute(0, 1, 2, 4, 3, 5).contiguous()
+        depth_gt_DA3_aligned = source_patches_aligned.view(B, C, H, W)
+        
+        # Compute scale-invariant loss between affine-aligned DA3 depth (teacher) and student prediction
+        result = self._scale_invarient_depth_diff(depth_gt_DA3_aligned, depth)
+        
+        return {'loss_distill_with_affine_correction': result['loss_distill_direct']}
+
+
+    def compute_distill_loss(self, inputs, outputs, scale, which_teacher):
+        # Apply affine beforehand if teacher is DA3_base, otherwise directly use scale invarient loss
+        assert which_teacher in ['DA3_base', 'EndoDAC'], f"Invalid teacher type: {which_teacher}"
+        use_distill = self.opt.enable_teacher_student_training and scale == 0
+        if not use_distill:
             return None
-        
-        teacher_depth = inputs[("DA3_base_teacher_depth", 0, 0)]
+
+        assert ("DA3_base_teacher_depth", 0, 0) in inputs and ("EndoDAC_teacher_depth", 0, 0) in inputs
+        teacher_depth_DA3 = inputs[("DA3_base_teacher_depth", 0, 0)]
+        teacher_depth_DAC = inputs[("EndoDAC_teacher_depth", 0, 0)]
         student_depth = outputs[("depth", 0, scale)]
-        gt_depth = inputs.get(("depth_gt", 0, 0), None)
-        
-        td_grad_x = torch.abs(teacher_depth[:, :, :, :-1] - teacher_depth[:, :, :, 1:])
-        sd_grad_x = torch.abs(student_depth[:, :, :, :-1] - student_depth[:, :, :, 1:])
-        
-        td_grad_y = torch.abs(teacher_depth[:, :, :-1, :] - teacher_depth[:, :, 1:, :])
-        sd_grad_y = torch.abs(student_depth[:, :, :-1, :] - student_depth[:, :, 1:, :])
-
-
-        edge_weight_x = torch.exp(td_grad_x)
-        loss_x = (torch.abs(td_grad_x - sd_grad_x) * edge_weight_x).mean()
-
-        # Y方向处理
-        edge_weight_y = torch.exp(td_grad_y)
-        loss_y = (torch.abs(td_grad_y - sd_grad_y) * edge_weight_y).mean()
-        print(f"fake edge loss as hf, replace hf...")
-
-        return {'loss': (loss_x + loss_y) / 2.0,
-            'loss_hf': 0.0,
-            'loss_topo': 0.0,
-            'loss_recon': 0.0,
-        }
+        if which_teacher == 'DA3_base':
+            return self._affine_invarient_depth_diff(teacher_depth_DAC, teacher_depth_DA3, student_depth)
+        elif which_teacher == 'EndoDAC':
+            return self._scale_invarient_depth_diff(teacher_depth_DAC, student_depth)
+        else:
+            raise ValueError(f"Invalid teacher type: {which_teacher}")
 
 
     def compute_hfd_loss(self, inputs, outputs, scale):
@@ -2723,11 +2850,10 @@ class Trainer:
         for scale in self.opt.scales:
             
             loss = 0
-
             loss_reprojection = 0
-
+            loss_distill_DAC = 0.0
+            loss_distill_DA3 = 0.0 # with affine correction
             loss_conf_aware_reprojection = 0
-
 
             loss_depth_consistency = 0
             loss_explict_geo = 0 #optic flow based
@@ -2848,22 +2974,23 @@ class Trainer:
 
             #/////////////////// teach student HFD loss
             # High-Frequency Distillation (HFD) loss - only compute at scale 0 (full resolution)
-            loss_hfd = 0.0
-            loss_hf = 0.0
-            loss_topo = 0.0
-            loss_recon_hfd = 0.0
-            
             enable_teacher_student = getattr(self.opt, 'enable_teacher_student_training', False)
             use_hfd = enable_teacher_student and scale == 0
-            
-            hfd_losses = self.compute_hfd_loss(inputs, outputs, scale)
+            distill_losses_DAC = self.compute_distill_loss(inputs, outputs, scale, 'EndoDAC')
+            distill_losses_DA3 = self.compute_distill_loss(inputs, outputs, scale, 'DA3_base')
+            if distill_losses_DAC is not None:
+                loss_distill_DAC += distill_losses_DAC['loss_distill_direct']
+            if distill_losses_DA3 is not None:
+                loss_distill_DA3 += distill_losses_DA3['loss_distill_with_affine_correction']
+
+            # hfd_losses = self.compute_hfd_loss(inputs, outputs, scale)
             # quick_exp:
             # hfd_losses = self.compute_direct_edge_loss(inputs, outputs, scale)
-            if hfd_losses is not None:
-                loss_hf = hfd_losses['loss_hf']
-                loss_topo = hfd_losses['loss_topo']
-                loss_recon_hfd = hfd_losses['loss_recon']
-                loss_hfd = hfd_losses['loss']
+            # if hfd_losses is not None:
+            #     loss_hf = hfd_losses['loss_hf']
+            #     loss_topo = hfd_losses['loss_topo']
+            #     loss_recon_hfd = hfd_losses['loss_recon']
+            #     loss_hfd = hfd_losses['loss']
             #/////////////////////
 
             # Normalize by number of source frames for consistent loss weighting
@@ -2879,10 +3006,9 @@ class Trainer:
             losses["loss_depth_consistency/{}".format(scale)] = loss_depth_consistency / num_source_frames
             
             if use_hfd:
-                losses["loss_hf/{}".format(scale)] = loss_hf
-                losses["loss_topo/{}".format(scale)] = loss_topo
-                losses["loss_recon_hfd/{}".format(scale)] = loss_recon_hfd
-                losses["loss_hfd/{}".format(scale)] = loss_hfd
+                losses["loss_distill_DAC/{}".format(scale)] = loss_distill_DAC / num_source_frames
+                losses["loss_distill_DA3/{}".format(scale)] = loss_distill_DA3 / num_source_frames
+
 
             # Apply weights and add to total loss
             loss += self.opt.photo_reprojection * (loss_reprojection / num_source_frames)
@@ -2902,7 +3028,8 @@ class Trainer:
             # Add HFD loss (only at scale 0)
             if use_hfd:
                 # HFD loss is already weighted inside compute_hfd_losses
-                loss += loss_hfd
+                loss += self.opt.dac_distill_loss_weight*loss_distill_DAC / num_source_frames + \
+                        self.opt.da3_distill_loss_weight*loss_distill_DA3 / num_source_frames
 
             total_loss += loss
             losses["loss/{}".format(scale)] = loss

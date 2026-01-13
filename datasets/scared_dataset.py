@@ -19,7 +19,16 @@ from utils import (
 DEFAULT_D7K4_SCENE_POINTS_DIR='/mnt/nct-zfs/TCO-All/SharedDatasets/SCARED_Depth/dataset_7/keyframe_4/data/scene_points'
 DATA_PATH='/mnt/cluster/datasets/SCARED/'
 DEPTH_PATH='/mnt/nct-zfs/TCO-All/SharedDatasets/SCARED_Depth/'
-TEACHER_DEPTH_DIR = '/mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/weights/da3_placeholder/pred_depths_online_train'
+# previous than 13.Jan. infact use DA3 giant
+TEACHER_DEPTH_GIANT_DIR = '/mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/weights/da3_giant_2repeatImgAsIpt_placeholder/pred_depths_online_train'
+# fall back to DA3 base zero shot
+TEACHER_DEPTH_BASE_DIR = '/mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/weights/da3_base_placeholder/pred_depths_online_train'
+TEACHER_ENDODAC_DISP_DIR = '/mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/weights/endodac_pretrained/pred_disps_online_train'
+TEACHER_DEPTHS_DICT = {
+    'DA3_base': TEACHER_DEPTH_BASE_DIR,
+    'DA3_giant': TEACHER_DEPTH_GIANT_DIR,
+    'EndoDAC': TEACHER_ENDODAC_DISP_DIR,
+}
 
 class SCAREDDataset(MonoDataset):
     def __init__(self, *args, **kwargs):
@@ -80,8 +89,10 @@ class SCAREDRAWDataset(SCAREDDataset):
         self.teacher_depth_loading = teacher_depth_loading
         
         if self.teacher_depth_loading:
-            assert os.path.exists(TEACHER_DEPTH_DIR), f"Teacher depth directory not found: {TEACHER_DEPTH_DIR}"
-            print(f"Teacher depth loading enabled. Loading teacher depths from: {TEACHER_DEPTH_DIR}")
+            assert os.path.exists(TEACHER_DEPTHS_DICT['DA3_base']), f"Teacher depth directory not found: {TEACHER_DEPTHS_DICT['DA3_base']}"
+            print(f"Teacher depth loading enabled. Loading teacher depths from: {TEACHER_DEPTHS_DICT['DA3_base']}")
+            assert os.path.exists(TEACHER_DEPTHS_DICT['EndoDAC']), f"Teacher depth directory not found: {TEACHER_DEPTHS_DICT['EndoDAC']}"
+            print(f"Teacher depth loading enabled. Loading teacher disp from: {TEACHER_DEPTHS_DICT['EndoDAC']}")
         if self.load_gt_poses:
             self.trajs_dict = get_gt_poses(
                 self.filenames,
@@ -186,10 +197,13 @@ class SCAREDRAWDataset(SCAREDDataset):
 
         return depth_gt
 
-    def get_teacher_depth(self, folder, frame_index, side, do_flip):
+    def get_teacher_depth(self, folder, frame_index, side, do_flip, which_teacher):
         """Load teacher depth and apply flip if needed"""
+        assert which_teacher in ['DA3_base', 'DA3_giant', 'EndoDAC'], f"Invalid teacher type: {which_teacher}"
+        # apply disp2depth for EndoDAC teacher
         teacher_depth = load_teacher_depth(
-            TEACHER_DEPTH_DIR, folder, frame_index, self.height, self.width
+            TEACHER_DEPTHS_DICT[which_teacher], folder, frame_index, self.height, self.width,
+            apply_disp2depth=which_teacher == 'EndoDAC', #raw label from DAC is disp
         )
         if teacher_depth is not None:
             if do_flip:

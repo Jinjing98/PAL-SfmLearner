@@ -254,12 +254,23 @@ class MonoDataset(data.Dataset):
                 inputs[("depth_gt", 0, 0)] = torch.from_numpy(inputs[("depth_gt", 0, 0)].astype(np.float32))
 
         # Load teacher depth if enabled (with same do_flip flag for consistency)
-        if hasattr(self, 'teacher_depth_loading') and self.teacher_depth_loading:
-            teacher_depth = self.get_teacher_depth(folder, frame_index, side, do_flip)
+        if self.teacher_depth_loading:
+            teacher_depth = self.get_teacher_depth(folder, frame_index, side, do_flip, which_teacher='DA3_base')
             if teacher_depth is not None:
                 inputs[("DA3_base_teacher_depth", 0, 0)] = torch.from_numpy(
                     np.expand_dims(teacher_depth, 0).astype(np.float32)
                 )
+            else:
+                raise ValueError(f"Failed to load DA3_base teacher depth for folder: {folder}, frame_index: {frame_index}, side: {side}")
+            
+            # load EndoDAC teacher depth
+            teacher_depth = self.get_teacher_depth(folder, frame_index, side, do_flip, which_teacher='EndoDAC')
+            if teacher_depth is not None:
+                inputs[("EndoDAC_teacher_depth", 0, 0)] = torch.from_numpy(
+                    np.expand_dims(teacher_depth, 0).astype(np.float32)
+                )
+            else:
+                raise ValueError(f"Failed to load EndoDAC teacher depth for folder: {folder}, frame_index: {frame_index}, side: {side}")
 
         if "s" in self.frame_idxs:
             stereo_T = np.eye(4, dtype=np.float32)
