@@ -46,9 +46,183 @@ from utils import load_pretrained_weights
 from third_party.EndoDAC.models.backbones.mylora import Linear as LoraLinear
 from third_party.EndoDAC.models.backbones.mylora import DVLinear as DVLinear
 from third_party.EndoDAC.models.backbones.galora import LoRALayer
+import torch.nn.functional as F
+import math
 
 def _wrap_cfg(cfg_obj):
     return OmegaConf.create(cfg_obj)
+
+
+class LoraLinear_QV(LoraLinear):
+    """
+    LoRA Linear layer that only applies LoRA to Q and V projections in QKV.
+    Assumes out_features = 3 * hidden_dim, where the output is organized as [Q, K, V].
+    LoRA is only applied to Q and V parts, K remains unchanged.
+    
+    Inherits from LoraLinear (mylora.Linear).
+    """
+    def __init__(
+        self, 
+        in_features: int, 
+        out_features: int, 
+        r: int = 0, 
+        lora_alpha: int = 1, 
+        lora_dropout: float = 0.,
+        fan_in_fan_out: bool = False,
+        merge_weights: bool = False,
+        **kwargs
+    ):
+        # out_features must be divisible by 3 (Q, K, V)
+        assert out_features % 3 == 0, f"out_features must be divisible by 3 for QKV, got {out_features}"
+        
+        # Initialize parent with full out_features to create the base Linear layer
+        nn.Linear.__init__(self, in_features, out_features, **kwargs)
+        LoRALayer.__init__(self, r=r, lora_alpha=lora_alpha, lora_dropout=lora_dropout,
+                           merge_weights=merge_weights)
+        
+        self.fan_in_fan_out = fan_in_fan_out
+        self.hidden_dim = out_features // 3
+        
+        # LoRA parameters only for Q and V (2/3 of out_features)
+        if r > 0:
+            self.lora_A = nn.Parameter(self.weight.new_zeros((r, in_features)))
+            # Only 2 * hidden_dim for Q and V
+            self.lora_B = nn.Parameter(self.weight.new_zeros((2 * self.hidden_dim, r)))
+            self.scaling = lora_alpha / r
+            # Freeze the pre-trained weight matrix
+            self.weight.requires_grad = False
+        
+        self.reset_parameters()
+        if fan_in_fan_out:
+            self.weight.data = self.weight.data.T
+    
+    def reset_parameters(self):
+        nn.Linear.reset_parameters(self)
+        if hasattr(self, 'lora_A'):
+            # Initialize A the same way as the default for nn.Linear and B to zero
+            nn.init.kaiming_uniform_(self.lora_A, a=math.sqrt(5))
+            nn.init.zeros_(self.lora_B)
+    
+    def forward(self, x: torch.Tensor):
+        def T(w):
+            return w.T if self.fan_in_fan_out else w
+        
+        if self.r > 0 and not self.merged:
+            # Base forward: x @ W.T
+            result = F.linear(x, T(self.weight), bias=self.bias)
+            
+            # Compute LoRA output for Q and V only: x @ A.T @ B.T
+            lora_out = (self.lora_dropout(x) @ self.lora_A.T @ self.lora_B.T) * self.scaling
+            
+            # Split result into Q, K, V
+            # result shape: (..., 3 * hidden_dim)
+            q = result[..., :self.hidden_dim]
+            k = result[..., self.hidden_dim:2*self.hidden_dim]
+            v = result[..., 2*self.hidden_dim:]
+            
+            # Split lora_out into Q and V parts
+            # lora_out shape: (..., 2 * hidden_dim)
+            lora_q = lora_out[..., :self.hidden_dim]
+            lora_v = lora_out[..., self.hidden_dim:]
+            
+            # Apply LoRA to Q and V, keep K unchanged
+            q = q + lora_q
+            v = v + lora_v
+            
+            # Concatenate back to [Q, K, V]
+            result = torch.cat([q, k, v], dim=-1)
+            
+            return result
+        else:
+            return F.linear(x, T(self.weight), bias=self.bias)
+
+
+class DVLinear_QV(DVLinear):
+    """
+    DVLoRA Linear layer that only applies LoRA to Q and V projections in QKV.
+    Assumes out_features = 3 * hidden_dim, where the output is organized as [Q, K, V].
+    LoRA is only applied to Q and V parts, K remains unchanged.
+    
+    Inherits from DVLinear (mylora.DVLinear).
+    """
+    def __init__(
+        self, 
+        in_features: int, 
+        out_features: int, 
+        r: int = 0, 
+        lora_alpha: int = 1, 
+        lora_dropout: float = 0.,
+        fan_in_fan_out: bool = False,
+        merge_weights: bool = False,
+        **kwargs
+    ):
+        # out_features must be divisible by 3 (Q, K, V)
+        assert out_features % 3 == 0, f"out_features must be divisible by 3 for QKV, got {out_features}"
+        
+        # Initialize parent with full out_features to create the base Linear layer
+        nn.Linear.__init__(self, in_features, out_features, **kwargs)
+        LoRALayer.__init__(self, r=r, lora_alpha=lora_alpha, lora_dropout=lora_dropout,
+                           merge_weights=merge_weights)
+        
+        self.fan_in_fan_out = fan_in_fan_out
+        self.hidden_dim = out_features // 3
+        
+        # DVLoRA parameters only for Q and V (2/3 of out_features)
+        if r > 0:
+            self.lora_A = nn.Parameter(self.weight.new_zeros((r, in_features)))
+            # Only 2 * hidden_dim for Q and V
+            self.lora_B = nn.Parameter(self.weight.new_zeros((2 * self.hidden_dim, r)))
+            self.lora_U = nn.Parameter(self.weight.new_zeros(r, 1))
+            self.lora_V = nn.Parameter(self.weight.new_zeros(2 * self.hidden_dim, 1))
+            self.scaling = lora_alpha / r
+            # Freeze the pre-trained weight matrix
+            self.weight.requires_grad = False
+        
+        self.reset_parameters()
+        if fan_in_fan_out:
+            self.weight.data = self.weight.data.T
+    
+    def reset_parameters(self):
+        nn.Linear.reset_parameters(self)
+        if hasattr(self, 'lora_A'):
+            # Initialize A, U, V same way as DVLinear
+            nn.init.kaiming_uniform_(self.lora_A, a=math.sqrt(5))
+            nn.init.zeros_(self.lora_B)
+            nn.init.kaiming_uniform_(self.lora_U, a=math.sqrt(5))
+            nn.init.kaiming_uniform_(self.lora_V, a=math.sqrt(5))
+    
+    def forward(self, x: torch.Tensor):
+        def T(w):
+            return w.T if self.fan_in_fan_out else w
+        
+        if self.r > 0 and not self.merged:
+            # Base forward: x @ W.T
+            result = F.linear(x, T(self.weight), bias=self.bias)
+            
+            # Compute DVLoRA output for Q and V only: x @ (A*U).T @ (B*V).T
+            lora_out = (self.lora_dropout(x) @ (self.lora_A * self.lora_U).T @ (self.lora_B * self.lora_V).T) * self.scaling
+            
+            # Split result into Q, K, V
+            # result shape: (..., 3 * hidden_dim)
+            q = result[..., :self.hidden_dim]
+            k = result[..., self.hidden_dim:2*self.hidden_dim]
+            v = result[..., 2*self.hidden_dim:]
+            
+            # Split lora_out into Q and V parts
+            # lora_out shape: (..., 2 * hidden_dim)
+            lora_q = lora_out[..., :self.hidden_dim]
+            lora_v = lora_out[..., self.hidden_dim:]
+            
+            # Apply LoRA to Q and V, keep K unchanged
+            q = q + lora_q
+            v = v + lora_v
+            
+            # Concatenate back to [Q, K, V]
+            result = torch.cat([q, k, v], dim=-1)
+            
+            return result
+        else:
+            return F.linear(x, T(self.weight), bias=self.bias)
 
 
 def mark_only_part_as_trainable_v2(
@@ -234,11 +408,14 @@ class EndoDepthAnything3Net(nn.Module):
                 if (hasattr(blk, 'mlp') and hasattr(blk.mlp, 'fc1') and hasattr(blk.mlp, 'fc2')) \
                     or (hasattr(blk.mlp, 'w12') and hasattr(blk.mlp, 'w3')):
                     if hasattr(blk.mlp, 'fc1') and hasattr(blk.mlp, 'fc2'):
-                        # print(f"Applying LoRA to MLP block (layer {layer_idx}) Include attn.qkv: {self.lora_apply_to_attn and (6 <= layer_idx <= 11)}")
                         # we only apply on the qkv proj layer rather the attn.proj
                         # Only apply attention LoRA to layers 6-11 (0-indexed: 6, 7, 8, 9, 10, 11)
                         self._apply_lora_to_block(blk, layer_idx=layer_idx, 
                                                 lora_on_qkv=self.lora_apply_to_attn and (6 <= layer_idx <= 11), 
+                                                
+                                                # lora_on_qkv=False,
+                                                # lora_on_qv=self.lora_apply_to_attn,
+                                                
                                                 lora_on_proj=False)
                     elif hasattr(blk.mlp, 'w12') and hasattr(blk.mlp, 'w3'):
                         # print(f"Applying LoRA to SwiGLU block of giant model")
@@ -249,14 +426,15 @@ class EndoDepthAnything3Net(nn.Module):
                 else:
                     assert False, "blk has no mlp or swiglufused"
     
-    def _apply_lora_to_block(self, blk, layer_idx=None, lora_on_qkv=False, lora_on_proj=False):
+    def _apply_lora_to_block(self, blk, layer_idx=None, lora_on_qkv=False, lora_on_qv=False, lora_on_proj=False):
         """
         Apply LoRA to a single transformer block's MLP layers and optionally attention projection layer.
         
         Args:
             blk: Transformer block with mlp attribute containing fc1 and fc2, and optionally attn.proj
             layer_idx: Layer index (0-indexed) for selective attention LoRA application
-            lora_on_qkv: Whether to apply LoRA to attention qkv layer
+            lora_on_qkv: Whether to apply LoRA to attention qkv layer (full QKV)
+            lora_on_qv: Whether to apply LoRA only to Q and V in attention qkv layer (partial, K unchanged)
             lora_on_proj: Whether to apply LoRA to attention projection layer
         """
         # Apply LoRA to MLP feed-forward layers
@@ -283,15 +461,26 @@ class EndoDepthAnything3Net(nn.Module):
                 blk.attn.proj = LoraLinear(attn_proj_in_features, attn_proj_out_features, r=self.lora_r)
         
         if lora_on_qkv:
-            # optionally apply on attn.qkv
+            assert not lora_on_qv, "lora_on_qkv and lora_on_qv cannot be True at the same time"
+            # optionally apply on attn.qkv (full QKV)
             qkv_in = blk.attn.qkv.in_features
             qkv_out = blk.attn.qkv.out_features
             if self.lora_type == "dvlora":
                 blk.attn.qkv = DVLinear(qkv_in, qkv_out, r=self.lora_r, lora_alpha=self.lora_r)
             elif self.lora_type == "lora":
                 blk.attn.qkv = LoraLinear(qkv_in, qkv_out, r=self.lora_r)
+        
+        if lora_on_qv:
+            assert not lora_on_qkv, "lora_on_qv and lora_on_qkv cannot be True at the same time"
+            # optionally apply on attn.qkv, but only on Q and V (K unchanged)
+            qkv_in = blk.attn.qkv.in_features
+            qkv_out = blk.attn.qkv.out_features
+            if self.lora_type == "dvlora":
+                blk.attn.qkv = DVLinear_QV(qkv_in, qkv_out, r=self.lora_r, lora_alpha=self.lora_r)
+            elif self.lora_type == "lora":
+                blk.attn.qkv = LoraLinear_QV(qkv_in, qkv_out, r=self.lora_r)
 
-        print(f"Applied LoRA to attention projection layer{layer_idx} with lora_on_qkv: {lora_on_qkv} and lora_on_proj: {lora_on_proj}")
+        print(f"Applied LoRA to attention projection layer{layer_idx} with lora_on_qkv: {lora_on_qkv}, lora_on_qv: {lora_on_qv}, and lora_on_proj: {lora_on_proj}")
 
 
     def _apply_lora_to_block_swiglufused(self, blk, layer_idx=None):
