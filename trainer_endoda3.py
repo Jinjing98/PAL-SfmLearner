@@ -90,6 +90,7 @@ class EndoDepthAnything3NetWrapper(torch.nn.Module):
             assert self.model.head.activation == "sigmoid", f"Expected activation='sigmoid' for disp regression, but got activation='{self.model.head.activation}'"
         else:
             raise ValueError(f"Unsupported depth regression target: {self.da3_depth_regression_target}")
+        
         # Expose lora_type from wrapped model for compatibility
         self.lora_type = getattr(model, 'lora_type', 'none')
     def forward(self, x, frame_id=None, index_in_spatial_S=None, raw_model_output=None):
@@ -131,6 +132,7 @@ class EndoDepthAnything3NetWrapper(torch.nn.Module):
             # Call model normally
             output = self.model(x_mv, extrinsics=None, intrinsics=None, 
                                export_feat_layers=[], infer_gs=False, use_ray_pose=False)
+        
         # Check if multi-scale output is enabled
         is_multi_scale = (isinstance(self.model.head, DPTMultiScale) and self.model.head.enable_multi_scale) or \
                          (isinstance(self.model.head, DualDPTMultiScale) and self.model.head.enable_multi_scale)
@@ -1294,6 +1296,19 @@ class Trainer:
         """Construct and initialize the pose model.
         Supports different pose model types: separate_resnet, shared, posecnn, da3_internal.
         """
+        # Sanity check head_ray if pose_model_type is da3_ray_embedding
+        if self.opt.pose_model_type == "da3_ray_embedding":
+            if self.opt.depth_model_type == "depthanything3":
+                depth_model_base = self.models["depth_model"].model
+                # Check if head has dual head structure (head_main and head_aux)
+                if not (hasattr(depth_model_base.head, 'head_main') and hasattr(depth_model_base.head, 'head_aux')):
+                    raise ValueError(f"pose_model_type '{self.opt.pose_model_type}' requires depth model with dual head "
+                                   f"(head_main and head_aux attributes)")
+                # Check if head_main is depth and head_aux is ray
+                if depth_model_base.head.head_main != "depth" or depth_model_base.head.head_aux != "ray":
+                    raise ValueError(f"Expected head_main='depth' and head_aux='ray' for {self.opt.pose_model_type}, "
+                                   f"but got head_main='{depth_model_base.head.head_main}' and head_aux='{depth_model_base.head.head_aux}'")
+        
         if self.opt.pose_model_type == "separate_resnet":
             self.models["pose_encoder"] = ResnetEncoder(
                 self.opt.num_layers,
@@ -1335,22 +1350,63 @@ class Trainer:
                 print(f"Warning: cam_dec rot_representation ({cam_dec_rot_repr}) != opt rot_representation ({opt_rot_repr}). "
                       f"Will convert from {cam_dec_rot_repr} to {opt_rot_repr}.")
             # No pose model needed - will extract from depth model output
+        
+        elif self.opt.pose_model_type == "da3_ray_embedding":
+            # Sanity check: depth model must have ray head (dual head)
+            depth_model_base = self.models["depth_model"].model
+            if not hasattr(depth_model_base.head, 'head_aux'):
+                raise ValueError(
+                    "pose_model_type 'da3_ray_embedding' requires depth model to have dual head with ray output. "
+                    "Ensure head_names includes 'ray'."
+                )
+            # Create pose decoder that takes ray embeddings as input
+            # Ray embeddings have shape [B, S, C, H/down_ratio, W/down_ratio]
+            # For DualDPT with multi-scale, C=6 (6 ray channels from aux head)
+            from networks.ray_pose_decoder import RayPoseDecoder
+            ray_dim = 6  # ray embedding dimension (from DualDPT aux head)
+            self.models["pose"] = RayPoseDecoder(
+                ray_dim=ray_dim,
+                trans_scale_factor=getattr(self.opt, 'trans_scale_factor', 0.001),
+                rot_scale_factor=getattr(self.opt, 'rot_scale_factor', 0.001),
+                rot_representation=getattr(self.opt, 'rot_representation', 'angle_axis'),
+                explicit_bias_init_6d9d=getattr(self.opt, 'explicit_bias_init_6d9d', False)
+            )
 
-        if self.opt.pose_model_type != "da3_internal":
+        if self.opt.pose_model_type not in ["da3_internal", "da3_ray_embedding"]:
+            self.models["pose"].to(self.device)
+        elif self.opt.pose_model_type == "da3_ray_embedding":
             self.models["pose"].to(self.device)
 
     def construct_k_model(self):
         """Construct and initialize the intrinsics (K) model.
         Supports mlp_with_pn_bottleneck_ipt and da3_internal.
         """
+        # Sanity check head_ray if k_model_type is da3_ray_embedding
+        if self.opt.k_model_type == "da3_ray_embedding":
+            if self.opt.depth_model_type == "depthanything3":
+                depth_model_base = self.models["depth_model"].model
+                # Check if head has dual head structure (head_main and head_aux)
+                if not (hasattr(depth_model_base.head, 'head_main') and hasattr(depth_model_base.head, 'head_aux')):
+                    raise ValueError(f"k_model_type '{self.opt.k_model_type}' requires depth model with dual head "
+                                   f"(head_main and head_aux attributes)")
+                # Check if head_main is depth and head_aux is ray
+                if depth_model_base.head.head_main != "depth" or depth_model_base.head.head_aux != "ray":
+                    raise ValueError(f"Expected head_main='depth' and head_aux='ray' for {self.opt.k_model_type}, "
+                                   f"but got head_main='{depth_model_base.head.head_main}' and head_aux='{depth_model_base.head.head_aux}'")
+        
         if self.opt.k_model_type == "mlp_with_pn_bottleneck_ipt":
-            # Sanity check: pose_encoder must exist for this model type
-            if "pose_encoder" not in self.models:
+            assert 'pose_encoder' in self.models, "pose_encoder model is required for k_model_type 'mlp_with_pn_bottleneck_ipt'"
+            # Get num_ch_enc from pose_encoder or pose model (for da3_ray_embedding)
+            if "pose_encoder" in self.models:
+                num_ch_enc = self.models["pose_encoder"].num_ch_enc
+            elif "pose" in self.models and hasattr(self.models["pose"], 'num_ch_enc'):
+                num_ch_enc = self.models["pose"].num_ch_enc 
+            else:
                 raise ValueError(
-                    "k_model_type 'mlp_with_pn_bottleneck_ipt' requires pose_encoder. "
-                    "Ensure pose_model_type is 'separate_resnet'."
+                    "k_model_type 'mlp_with_pn_bottleneck_ipt' requires pose_encoder or pose model with num_ch_enc. "
+                    "Ensure pose_model_type is 'separate_resnet' or 'da3_ray_embedding'."
                 )
-            self.models['intrinsics_head'] = IntrinsicsHead(self.models["pose_encoder"].num_ch_enc)
+            self.models['intrinsics_head'] = IntrinsicsHead(num_ch_enc)
             self.models['intrinsics_head'].to(self.device)
         elif self.opt.k_model_type == "da3_internal":
             # Sanity check: depth_model must have cam_dec module
@@ -1361,6 +1417,21 @@ class Trainer:
                     "Ensure the depth model config includes cam_dec."
                 )
             # No intrinsics_head needed - will extract from depth model output
+        
+        elif self.opt.k_model_type == "da3_ray_embedding":
+            # Sanity check: depth model must have ray head (dual head)
+            depth_model_base = self.models["depth_model"].model
+            if not hasattr(depth_model_base.head, 'head_aux'):
+                raise ValueError(
+                    "k_model_type 'da3_ray_embedding' requires depth model to have dual head with ray output. "
+                    "Ensure head_names includes 'ray'."
+                )
+            # Create intrinsics head that takes ray embeddings as input
+            from networks.ray_pose_decoder import RayIntrinsicsHead
+            ray_dim = 6  # ray embedding dimension (from DualDPT aux head)
+            self.models['intrinsics_head'] = RayIntrinsicsHead(ray_dim=ray_dim)
+            self.models['intrinsics_head'].to(self.device)
+        
         else:
             raise ValueError(f"Unsupported k_model_type: {self.opt.k_model_type}")
 
@@ -2272,10 +2343,14 @@ class Trainer:
 
                     # pose and intrinsics
                     # da3_internal means using depthanything3's internal pose/K decoder
+                    # da3_ray_embedding means using ray embeddings from depth model's aux head
                     # When enable_seq_inputs is True, use cached output. Otherwise, call model per frame pair.
                     depth_output_dict = None
+                    ray_embeddings = None
                     need_da3_output = (self.opt.pose_model_type == "da3_internal" or 
                                       (self.opt.learn_intrinsics and self.opt.k_model_type == "da3_internal"))
+                    need_ray_embeddings = (self.opt.pose_model_type == "da3_ray_embedding" or
+                                          (self.opt.learn_intrinsics and self.opt.k_model_type == "da3_ray_embedding"))
                     
                     if need_da3_output:
                         if self.enable_seq_inputs and cached_raw_model_output is not None:
@@ -2311,6 +2386,48 @@ class Trainer:
                             frames_input = torch.stack([pose_feats[0], pose_feats[f_i]], dim=1)  # (B, 2, 3, H, W)
                             depth_output_dict = self.models["depth_model"](frames_input, frame_id=f_i)
                     
+                    # Extract ray embeddings if needed for da3_ray_embedding
+                    if need_ray_embeddings:
+                        if self.enable_seq_inputs and cached_raw_model_output is not None:
+                            # Extract ray embeddings from cached output
+                            # For multi-scale output, ray embeddings are at top level with keys like "ray_0", "ray_1", etc.
+                            # Use finest scale (ray_0)
+                            aux_head_name = self.models["depth_model"].model.head.head_aux
+                            ray_key = f"{aux_head_name}_0"  # Use scale 0 (finest)
+                            
+                            if ray_key in cached_raw_model_output:
+                                # ray_full shape: [B, S, H, W, C]
+                                ray_full = cached_raw_model_output[ray_key]
+                                # Convert to [B, S, C, H, W]
+                                ray_full = ray_full.permute(0, 1, 4, 2, 3)
+                                
+                                # Extract for frame pair [0, f_i]
+                                index_0 = 0  # reference frame
+                                index_fi = self.current_frame_ids.index(f_i)
+                                # Keep gradient flow to train head_aux
+                                ray_embeddings = torch.stack([
+                                    ray_full[:, index_0], 
+                                    ray_full[:, index_fi]
+                                ], dim=1)  # [B, 2, C, H, W]
+                            else:
+                                raise ValueError(f"Ray embeddings key '{ray_key}' not found in cached_raw_model_output. Available keys: {list(cached_raw_model_output.keys())}")
+                        else:
+                            # Call depth model to get ray embeddings
+                            frames_input = torch.stack([pose_feats[0], pose_feats[f_i]], dim=1)  # (B, 2, 3, H, W)
+                            raw_output = self.models["depth_model"].model(frames_input)
+                            
+                            # Extract ray embeddings from output (use finest scale)
+                            aux_head_name = self.models["depth_model"].model.head.head_aux
+                            ray_key = f"{aux_head_name}_0"  # Use scale 0 (finest)
+                            
+                            if ray_key in raw_output:
+                                # ray_full shape: [B, S, H, W, C] where S=2 (pair)
+                                ray_full = raw_output[ray_key]
+                                # Convert to [B, S, C, H, W]
+                                ray_embeddings = ray_full.permute(0, 1, 4, 2, 3)  # [B, 2, C, H, W]
+                            else:
+                                raise ValueError(f"Ray embeddings key '{ray_key}' not found in model output. Available keys: {list(raw_output.keys())}")
+                    
                     # Extract pose from wrapper output
                     if self.opt.pose_model_type == "da3_internal":
                         # Wrapper already formatted pose outputs, just merge them
@@ -2323,6 +2440,19 @@ class Trainer:
                             if isinstance(key, tuple) and len(key) >= 1:
                                 if key[0] in pose_keys:
                                     outputs[key] = value
+                    
+                    elif self.opt.pose_model_type == "da3_ray_embedding":
+                        # Use ray embeddings to predict pose
+                        if ray_embeddings is None:
+                            raise ValueError("da3_ray_embedding pose_model_type requires ray embeddings. "
+                                           "This should not happen if logic is correct.")
+                        # ray_embeddings shape: [B, 2, 7, H, W]
+                        rot_output, translation = self.models["pose"](ray_embeddings)
+                        outputs[("translation", 0, f_i)] = translation
+                        
+                        rot_representation = getattr(self.opt, 'rot_representation', 'angle_axis')
+                        self._store_pose_outputs(outputs, rot_output, translation, rot_representation, f_i)
+                    
                     else:
                         # Original pose prediction logic
                         # historical order issue
@@ -2346,11 +2476,24 @@ class Trainer:
                             else:
                                 raise ValueError("da3_internal k_model_type requires depth model to output intrinsics. "
                                                "Ensure cam_dec is enabled in depth model config.")
+                        
+                        elif self.opt.k_model_type == "da3_ray_embedding":
+                            # Use ray embeddings to predict intrinsics
+                            if ray_embeddings is None:
+                                raise ValueError("da3_ray_embedding k_model_type requires ray embeddings. "
+                                               "This should not happen if logic is correct.")
+                            # Use ray from reference frame (index 0)
+                            ray_ref = ray_embeddings[:, 0]  # [B, 7, H, W]
+                            cam_K = self.models['intrinsics_head'](ray_ref, self.opt.width, self.opt.height)
+                            inv_K = torch.inverse(cam_K)
+                            outputs[('K', 0)] = cam_K
+                            outputs[('inv_K', 0)] = inv_K
+                        
                         else:
                             # Use intrinsics_head (requires intermediate_feature from pose model)
-                            if self.opt.pose_model_type == "da3_internal":
-                                raise ValueError("k_model_type 'mlp_with_pn_bottleneck_ipt' requires pose_model_type != 'da3_internal'. "
-                                               "Use k_model_type 'da3_internal' when pose_model_type is 'da3_internal'.")
+                            if self.opt.pose_model_type in ["da3_internal", "da3_ray_embedding"]:
+                                raise ValueError(f"k_model_type 'mlp_with_pn_bottleneck_ipt' requires pose_model_type not in ['da3_internal', 'da3_ray_embedding']. "
+                                               f"Current pose_model_type: {self.opt.pose_model_type}")
                             cam_K = self.models['intrinsics_head'](intermediate_feature, self.opt.width, self.opt.height)
                             inv_K = torch.inverse(cam_K)
                             outputs[('K', 0)] = cam_K

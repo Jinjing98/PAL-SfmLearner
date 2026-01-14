@@ -77,7 +77,7 @@ class MonodepthOptions:
                                  type=str,
                                  help="normal or shared",
                                  default="separate_resnet",
-                                 choices=["posecnn", "separate_resnet", "shared", "da3_internal"])
+                                 choices=["posecnn", "separate_resnet", "shared", "da3_internal", "da3_ray_embedding", "da3_ray_embedding_detach"])
         self.parser.add_argument("--depth_model_type",
                                  type=str,
                                  help="depth model type (placeholder)",
@@ -127,7 +127,7 @@ class MonodepthOptions:
                                  type=str,
                                  help="intrinsics model type",
                                  default="mlp_with_pn_bottleneck_ipt",
-                                 choices=["mlp_with_pn_bottleneck_ipt", "da3_internal"])
+                                 choices=["mlp_with_pn_bottleneck_ipt", "da3_internal", "da3_ray_embedding", "da3_ray_embedding_detach"])
         self.parser.add_argument("--enable_seq_inputs",
                                  help="if set, enables sequential multi-frame input mode (requires depth_model_type=depthanything3)",
                                  action="store_true")
