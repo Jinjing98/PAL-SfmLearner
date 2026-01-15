@@ -411,10 +411,11 @@ class EndoDepthAnything3Net(nn.Module):
                         # we only apply on the qkv proj layer rather the attn.proj
                         # Only apply attention LoRA to layers 6-11 (0-indexed: 6, 7, 8, 9, 10, 11)
                         self._apply_lora_to_block(blk, layer_idx=layer_idx, 
-                                                lora_on_qkv=self.lora_apply_to_attn and (6 <= layer_idx <= 11), 
+                                                # lora_on_qkv=self.lora_apply_to_attn and (6 <= layer_idx <= 11), 
                                                 
-                                                # lora_on_qkv=False,
-                                                # lora_on_qv=self.lora_apply_to_attn,
+                                                # HARD CODE TO APPLY LORA ON ALL 12 LAYERRS and QV_Only
+                                                lora_on_qkv=False,
+                                                lora_on_qv=self.lora_apply_to_attn,
                                                 
                                                 lora_on_proj=False)
                     elif hasattr(blk.mlp, 'w12') and hasattr(blk.mlp, 'w3'):
