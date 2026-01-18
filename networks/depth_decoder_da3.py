@@ -260,6 +260,7 @@ class DualDPTMultiScale(DualDPT):
             outs: Dict[str, torch.Tensor] = {}
             
 
+            # enforce shows better in exp even on dino 256 320: to be fixed
             enforce_256_320_explicitly = True # necessary if we want more than dino_size_224_280
             enforce_256_320_explicitly = False # necessary if we want more than dino_size_224_280
             

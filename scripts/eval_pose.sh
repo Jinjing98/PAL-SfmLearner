@@ -32,8 +32,13 @@ CUDA_VISIBLE_DEVICES=0 python /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLear
 --rot_representation 6D \
 --load_gt_from_npz \
 --rot_representation angle_axis \
-
+--load_weights_folder /mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm/endodac/DA3_testset/\
+full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_extraLoraOnAttnQK0TO11_wMultiScaleD_seqInputs_0115_1521/models/weights_19 \
+# --track_lengths 411 \
 # --load_gt_from_npz \
+
+# traj1
+# --track_lengths 411 \
 
 # --save_poses_root /mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm/eval_pose/ \
 
