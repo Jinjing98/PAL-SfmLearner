@@ -133,7 +133,6 @@ CUDA_VISIBLE_DEVICES=0 python /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLear
 --exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_extraLoraOnAttnQKV6TO11_wMultiScaleD_ep30_ExtraEnforce256320explicitly \
 --exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_extraLoraOnAttnQKV0TO11_wMultiScaleD_ep30 \
 --exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_extraLoraOnAttnQK0TO11_wMultiScaleD_ep30 \
---enable_seq_inputs \
 --exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_extraLoraOnAttnQK0TO11_wMultiScaleD_seqInputs \
 --exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_extraLoraOnAttnQK0TO11_wMultiScaleD_seqInputs_LeanrinternalK \
 --exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_extraLoraOnAttnQK0TO11_wMultiScaleD_seqInputs_LeanrinternalK_InternalPoseAA \
@@ -142,12 +141,24 @@ CUDA_VISIBLE_DEVICES=0 python /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLear
 --exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_extraLoraOnAttnQK0TO11_wMultiScaleD_seqInputs_LeanrinternalK_PoseFromRayAA \
 --exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_extraLoraOnAttnQK0TO11_wMultiScaleD_seqInputs_LeanrinternalK \
 --exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_extraLoraOnAttnQK0TO11_wMultiScaleD_seqInputs_LeanrinternalK_teacher_student_dacDisW01_da3BDisW01 \
+--exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_extraLoraOnAttnQK0TO11_wMultiScaleD_seqInputs_LeanrinternalK_PoseFromBB_teacher_student_dacDisW01_da3BDisW01_ExtraEnforce256320explicitly \
+--exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_extraLoraOnAttnQK0TO11_wMultiScaleD_seqInputs_LeanrinternalK_PoseFromBBManualDetach_teacher_student_dacDisW01_da3BDisW01_ExtraEnforce256320explicitly \
+--enable_seq_inputs \
+--pose_model_type da3_encoder \
+--learn_intrinsics --k_model_type da3_internal \
 --enable_teacher_student_training \
 --da3_distill_loss_weight 0.1 \
 --dac_distill_loss_weight 0.1 \
+--exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_extraLoraOnAttnQK0TO11_wMultiScaleD_seqInputs_LeanrinternalK_PoseFromRayManualDetach_teacher_student_dacDisW01_da3BDisW01_ExtraEnforce256320explicitly \
+--pose_model_type da3_ray_embedding \
+
+# --exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_extraLoraOnAttnQK0TO11_wMultiScaleD_DA3DepthMetricLarge_ExtraEnforce256320explicitly \
+# --pretrained_path depth-anything/da3metric-large --endoda3_model_config /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/networks/configs/endo-da3-depth-wowrapper-large.yaml \
+# --exp_suffix full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_extraLoraOnAttnQK0TO11_wMultiScaleD_DA3DepthLarge_ExtraEnforce256320explicitly \
+# --pretrained_path depth-anything/da3mono-large --endoda3_model_config /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLearner/networks/configs/endo-da3-depth-wowrapper-large.yaml \
 
 
-# --learn_intrinsics --k_model_type da3_internal \
+
 # --pose_model_type da3_internal \
 
 
@@ -160,6 +171,19 @@ CUDA_VISIBLE_DEVICES=0 python /mnt/cluster/workspaces/jinjingxu/proj/PAL-SfmLear
 # --da3_distill_loss_weight 0.1 \
 # --dac_distill_loss_weight 0.1 \
 
+# 21.Jan
+# all in one net--what about detach: BB / RayMap
+## BB Detach
+# 129757 full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_extraLoraOnAttnQK0TO11_wMultiScaleD_seqInputs_LeanrinternalK_PoseFromBBManualDetach_teacher_student_dacDisW01_da3BDisW01_ExtraEnforce256320explicitly
+## RayMap Detach
+# 129758 full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_extraLoraOnAttnQK0TO11_wMultiScaleD_seqInputs_LeanrinternalK_PoseFromRayManualDetach_teacher_student_dacDisW01_da3BDisW01_ExtraEnforce256320explicitly
+
+# 19.Jan
+# all in one net--failed painly
+# 129488 full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_extraLoraOnAttnQK0TO11_wMultiScaleD_seqInputs_LeanrinternalK_PoseFromBB_teacher_student_dacDisW01_da3BDisW01_ExtraEnforce256320explicitly
+# large mono depth--mono better than metric, but still only comparibel to navie DA3_base
+# 129492 full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_extraLoraOnAttnQK0TO11_wMultiScaleD_DA3DepthLarge_ExtraEnforce256320explicitly
+# 129494 full_endodacB_angleaxis_baseline_OFrawSup_depthDA3_depth2disp_extraLoraOnAttnQK0TO11_wMultiScaleD_DA3DepthMetricLarge_ExtraEnforce256320explicitly
 
 # 15.Jan---adjust to seq_inputs pathway
 # potential singel frame baseline: (enforce 256 320 False in DPT)+QK0TO11

@@ -186,8 +186,8 @@ class EndoDinoVisionTransformer(nn.Module):
         # sanity check residual_block_indexes so that they are all local attention blocks
         for idx in residual_block_indexes:
             is_global = self.alt_start != -1 and idx >= self.alt_start and idx % 2 == 1
-            assert not is_global, "residual layer can be done on local attention block only, \
-                unless temporal dim S is 1, global layers are not supported--comment the assert if this is the case..."
+            # assert not is_global, "residual layer can be done on local attention block only, \
+                # unless temporal dim S is 1, global layers are not supported--comment the assert if this is the case..."
 
         self.res_conv_kernel_size = res_conv_kernel_size
         self.res_conv_padding = res_conv_padding

@@ -77,7 +77,7 @@ class MonodepthOptions:
                                  type=str,
                                  help="normal or shared",
                                  default="separate_resnet",
-                                 choices=["posecnn", "separate_resnet", "shared", "da3_internal", "da3_ray_embedding", "da3_ray_embedding_detach"])
+                                 choices=["posecnn", "separate_resnet", "shared", "da3_internal", "da3_ray_embedding", "da3_ray_embedding_detach","da3_encoder"])
         self.parser.add_argument("--depth_model_type",
                                  type=str,
                                  help="depth model type (placeholder)",

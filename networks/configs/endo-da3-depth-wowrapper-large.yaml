@@ -1,0 +1,63 @@
+__object__:
+  path: networks
+  name: EndoDepthAnything3Net
+  args: as_params
+
+lora_type: "lora"
+# lora_type: "dvlora"
+# lora_type: "none"
+lora_r: 4
+
+dino_resize_hw:
+  - 224
+  - 280
+ref_view_strategy: "first"
+# ref_view_strategy: "saddle_balanced"
+
+net:
+  __object__:
+    path: networks
+    name: EndoDinoVisionTransformer
+    args: as_params
+  
+  # vit-Large setting up
+  ffn_layer: "mlp"
+  embed_dim: 1024
+  depth: 24
+  num_heads: 16
+  mlp_ratio: 4.0
+  num_register_tokens: 0
+
+  alt_start: 8
+  qknorm_start: 8
+  rope_start: 8
+  cat_token: False  # Pretrained model uses False
+  # used for extract DPT input for depth estimation
+  out_layers: [11, 15, 19, 23] # default in DA3-Large
+  # out_layers: [8, 9, 10, 11] # endoDAC style
+
+  residual_block_indexes: []
+
+  # dino_resize_hw: actual input image size after resizing (used for residual block patch dimensions)
+  # If not specified, falls back to img_size
+  dino_resize_hw: [224, 280]
+
+# dpt head: the output shape from the head differs from DualDPT Head: (B, S, H, W, 1) instead of (B, S, H, W)
+head:
+  __object__:
+    path: depth_anything_3.model.dpt #depth_anything_3.model.dualdpt
+    name: DPT #DualDPT
+    args: as_params
+
+  # below param setting enables loading depth_dpt from pretrained DPT (Large)
+  dim_in: &head_dim_in 1024  # ViT-Large embed_dim (cat_token: False)
+  output_dim: 1  # Depth only (pretrained has 1 channel output)
+  norm_type: "layer"
+  pos_embed: True
+  activation: "exp"
+  head_name: "depth"
+
+  features: &head_features 256
+  out_channels: &head_out_channels [256, 512, 1024, 1024]
+  use_sky_head: False
+

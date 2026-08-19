@@ -42,15 +42,16 @@ net:
   rope_start: 4
   cat_token: True
   # used for extract DPT input for depth estimation
-  out_layers: [5, 7, 9, 11] # default in DA3
-  # out_layers: [8, 9, 10, 11] # endoDAC style
+  # out_layers: [5, 7, 9, 11] # default in DA3
+  # out_layers: [8, 9, 10, 11] # endoDAC style, despite there was self.intermediate_layers as 2,5,8,11 but not used.
+  out_layers: [4, 6, 8, 10] # all local layers in DA3
 
   # residual_block_indexes: [2, 5, 8, 11] # endodac
   # global layers: 5, 7, 9, 11
   # endo_da3: avoid add res on global layers; only doable if temporal_dim S is 1
-  # residual_block_indexes: [4, 6, 8, 10] 
+  residual_block_indexes: [4, 6, 8, 10] 
   # default no residual block
-  residual_block_indexes: []
+  # residual_block_indexes: []
 
   # dino_resize_hw: actual input image size after resizing (used for residual block patch dimensions)
   # If not specified, falls back to img_size

@@ -215,13 +215,26 @@ class Trainer:
 
         # is_train = not getattr(self.opt, 'of_samples', False) # can be used for compute depth err
         shuffle = not getattr(self.opt, 'of_samples', False)  # Fixed order for overfitting
+
+        def collate_fn_flexible(batch):
+            """Collate only keys available in every sample of a mixed batch."""
+            batch = [sample for sample in batch if sample is not None]
+            if not batch:
+                return {}
+
+            common_keys = set.intersection(*(set(sample.keys()) for sample in batch))
+            return {
+                key: torch.utils.data.default_collate([sample[key] for sample in batch])
+                for key in common_keys
+            }
         
         self.train_loader = DataLoader(
             train_dataset, self.opt.batch_size, shuffle,
             num_workers=self.opt.num_workers, pin_memory=True, drop_last=True)
         self.val_loader = DataLoader(
             val_dataset, self.opt.batch_size, False,
-            num_workers=1, pin_memory=True, drop_last=True)
+            num_workers=1, pin_memory=True, drop_last=True,
+            collate_fn=collate_fn_flexible)
         self.test_loader = DataLoader(
             test_dataset, 1, False,
             num_workers=1, pin_memory=True, drop_last=True,)
@@ -924,6 +937,7 @@ class Trainer:
             with torch.no_grad():
                 for inputs in self.val_loader:
                     outputs, losses = self.process_batch_val(inputs)
+                    # print(f"Validation batch: {self.val_loader.batch_size}, Loss: {losses['loss'].item():.4f}")
                     last_inputs, last_outputs, last_losses = inputs, outputs, losses
 
                     if getattr(self.opt, 'compute_depth_metrics', False):
@@ -1130,4 +1144,3 @@ class Trainer:
             # self.model_optimizer.load_state_dict(optimizer_dict)
         # else:
         print("Adam is randomly initialized")
-

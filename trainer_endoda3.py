@@ -145,10 +145,14 @@ class EndoDepthAnything3NetWrapper(torch.nn.Module):
             if isinstance(self.model.head, DPT) or isinstance(self.model.head, DPTMultiScale):
                 if self.model.head.head_main == "depth":
                     output.depth = output.depth.squeeze(-1)
-                    output.depth_conf = output.depth_conf.squeeze(-1)
+                    # Only squeeze depth_conf if it exists and is a tensor (output_dim >= 2)
+                    if hasattr(output, 'depth_conf') and output.depth_conf is not None and isinstance(output.depth_conf, torch.Tensor):
+                        output.depth_conf = output.depth_conf.squeeze(-1)
                 elif self.model.head.head_main == "disp":
                     output.disp = output.disp.squeeze(-1)
-                    output.disp_conf = output.disp_conf.squeeze(-1)
+                    # Only squeeze disp_conf if it exists and is a tensor (output_dim >= 2)
+                    if hasattr(output, 'disp_conf') and output.disp_conf is not None and isinstance(output.disp_conf, torch.Tensor):
+                        output.disp_conf = output.disp_conf.squeeze(-1)
             else:
                 assert isinstance(self.model.head, DualDPT) or isinstance(self.model.head, DualDPTMultiScale), \
                     f"model.head must be a DualDPT or DualDPTMultiScale, got {type(self.model.head)}"
@@ -169,7 +173,15 @@ class EndoDepthAnything3NetWrapper(torch.nn.Module):
                     # Check if key exists in output (AddictDict supports both dict and attr access)
                     if depth_key in output or hasattr(output, depth_key):
                         depth = output[depth_key] if depth_key in output else getattr(output, depth_key)  # (B, S, H, W)
-                        conf = output[conf_key] if conf_key in output else getattr(output, conf_key)  # (B, S, H, W)
+                        # Check if confidence exists (output_dim >= 2)
+                        if (conf_key in output or hasattr(output, conf_key)):
+                            conf_raw = output[conf_key] if conf_key in output else getattr(output, conf_key)
+                            if isinstance(conf_raw, torch.Tensor):
+                                conf = conf_raw
+                            else:
+                                conf = torch.ones_like(depth)
+                        else:
+                            conf = torch.ones_like(depth)
                         assert depth.dim() == 4, f"depth_{scale_name} shape: {depth.shape}"
                         assert conf.dim() == 4, f"conf_{scale_name} shape: {conf.shape}"
                         
@@ -216,7 +228,15 @@ class EndoDepthAnything3NetWrapper(torch.nn.Module):
                     # Check if key exists in output (AddictDict supports both dict and attr access)
                     if depth_key in output or hasattr(output, depth_key):
                         depth_raw = output[depth_key] if depth_key in output else getattr(output, depth_key)  # (B, S, H, W)
-                        conf = output[conf_key] if conf_key in output else getattr(output, conf_key)  # (B, S, H, W)
+                        # Check if confidence exists (output_dim >= 2)
+                        if (conf_key in output or hasattr(output, conf_key)):
+                            conf_raw = output[conf_key] if conf_key in output else getattr(output, conf_key)
+                            if isinstance(conf_raw, torch.Tensor):
+                                conf = conf_raw
+                            else:
+                                conf = torch.ones_like(depth_raw)
+                        else:
+                            conf = torch.ones_like(depth_raw)
                         assert depth_raw.dim() == 4, f"depth_{scale_name} shape: {depth_raw.shape}"
                         assert conf.dim() == 4, f"conf_{scale_name} shape: {conf.shape}"
                         
@@ -282,7 +302,15 @@ class EndoDepthAnything3NetWrapper(torch.nn.Module):
                     # Check if key exists in output (AddictDict supports both dict and attr access)
                     if disp_key in output or hasattr(output, disp_key):
                         disp = output[disp_key] if disp_key in output else getattr(output, disp_key)  # (B, S, H, W)
-                        conf = output[conf_key] if conf_key in output else getattr(output, conf_key)  # (B, S, H, W)
+                        # Check if confidence exists (output_dim >= 2)
+                        if (conf_key in output or hasattr(output, conf_key)):
+                            conf_raw = output[conf_key] if conf_key in output else getattr(output, conf_key)
+                            if isinstance(conf_raw, torch.Tensor):
+                                conf = conf_raw
+                            else:
+                                conf = torch.ones_like(disp)
+                        else:
+                            conf = torch.ones_like(disp)
                         assert disp.dim() == 4, f"Expected disp_{scale_name} shape (B, S, H, W), but got shape: {disp.shape}"
                         assert conf.dim() == 4, f"conf_{scale_name} shape: {conf.shape}"
                         
@@ -307,7 +335,12 @@ class EndoDepthAnything3NetWrapper(torch.nn.Module):
         else:
             if self.da3_depth_regression_target == "depth2disp":
                 depth = output.depth
-                conf = output.depth_conf
+                # Check if confidence exists and is a tensor (output_dim >= 2)
+                if hasattr(output, 'depth_conf') and isinstance(output.depth_conf, torch.Tensor):
+                    conf = output.depth_conf
+                else:
+                    # No confidence channel (output_dim == 1), create dummy confidence
+                    conf = torch.ones_like(depth)
                 assert depth.dim() == 4, f"depth shape: {depth.shape}"
                 assert conf.dim() == 4, f"conf shape: {conf.shape}"
                 
@@ -360,7 +393,12 @@ class EndoDepthAnything3NetWrapper(torch.nn.Module):
                 assert NotImplementedError("depth2disp_v3 is not implemented yet")
             elif self.da3_depth_regression_target == "disp":
                 disp = output.disp
-                conf = output.disp_conf
+                # Check if confidence exists and is a tensor (output_dim >= 2)
+                if hasattr(output, 'disp_conf') and isinstance(output.disp_conf, torch.Tensor):
+                    conf = output.disp_conf
+                else:
+                    # No confidence channel (output_dim == 1), create dummy confidence
+                    conf = torch.ones_like(disp)
                 
                 assert disp.dim() == 4, f"Expected disp shape (B, S, H, W), but got shape: {disp.shape}"
                 assert conf.dim() == 4, f"conf shape: {conf.shape}"
@@ -638,7 +676,12 @@ class EndoDepthAnything3NetWrapper(torch.nn.Module):
             # the direct output from DPT is dino_size_h_w
             if self.da3_depth_regression_target == "depth2disp":
                 depth = output.depth
-                conf = output.depth_conf
+                # Check if confidence exists and is a tensor (output_dim >= 2)
+                if hasattr(output, 'depth_conf') and isinstance(output.depth_conf, torch.Tensor):
+                    conf = output.depth_conf
+                else:
+                    # No confidence channel (output_dim == 1), create dummy confidence
+                    conf = torch.ones_like(depth)
                 assert depth.dim() == 4, f"depth shape: {depth.shape}"
                 assert conf.dim() == 4, f"conf shape: {conf.shape}"
                 
@@ -674,7 +717,12 @@ class EndoDepthAnything3NetWrapper(torch.nn.Module):
                         
             elif self.da3_depth_regression_target == "disp":
                 disp = output.disp
-                conf = output.disp_conf
+                # Check if confidence exists and is a tensor (output_dim >= 2)
+                if hasattr(output, 'disp_conf') and isinstance(output.disp_conf, torch.Tensor):
+                    conf = output.disp_conf
+                else:
+                    # No confidence channel (output_dim == 1), create dummy confidence
+                    conf = torch.ones_like(disp)
                 assert disp.dim() == 4, f"Expected disp shape (B, S, H, W), but got shape: {disp.shape}"
                 assert conf.dim() == 4, f"conf shape: {conf.shape}"
                 
@@ -1371,10 +1419,31 @@ class Trainer:
                 rot_representation=getattr(self.opt, 'rot_representation', 'angle_axis'),
                 explicit_bias_init_6d9d=getattr(self.opt, 'explicit_bias_init_6d9d', False)
             )
+        elif self.opt.pose_model_type=='da3_encoder':
+            # Sanity check: depth_model must be depthanything3
+            if self.opt.depth_model_type != "depthanything3":
+                raise ValueError(
+                    f"pose_model_type 'da3_encoder' requires depth_model_type='depthanything3', "
+                    f"got '{self.opt.depth_model_type}'"
+                )
+            # Get backbone feature dimension from depth model config
+            # The exported auxiliary features use raw embed_dim (not doubled by cat_token)
+            depth_model_base = self.models["depth_model"].model
+            backbone_dim = depth_model_base.backbone.embed_dim
+            
+            # Create pose decoder that takes backbone features as input
+            from networks.backbone_pose_decoder import BackbonePoseDecoder
+            self.models["pose"] = BackbonePoseDecoder(
+                backbone_dim=backbone_dim,
+                trans_scale_factor=getattr(self.opt, 'trans_scale_factor', 0.001),
+                rot_scale_factor=getattr(self.opt, 'rot_scale_factor', 0.001),
+                rot_representation=getattr(self.opt, 'rot_representation', 'angle_axis'),
+                explicit_bias_init_6d9d=getattr(self.opt, 'explicit_bias_init_6d9d', False)
+            )
 
-        if self.opt.pose_model_type not in ["da3_internal", "da3_ray_embedding"]:
+        if self.opt.pose_model_type not in ["da3_internal", "da3_ray_embedding", "da3_encoder"]:
             self.models["pose"].to(self.device)
-        elif self.opt.pose_model_type == "da3_ray_embedding":
+        elif self.opt.pose_model_type in ["da3_ray_embedding", "da3_encoder"]:
             self.models["pose"].to(self.device)
 
     def construct_k_model(self):
@@ -1694,7 +1763,10 @@ class Trainer:
                 warm_up = False
             mark_only_part_as_trainable_v2(self.models["depth_model"], 
                                             warm_up=warm_up,
-                                            other_trainable=["residual_", "conv_depth_"])
+                                            other_trainable=[
+                                                "residual_", 
+                                                "conv_depth_",
+                                                ])
 
         if "pose_encoder" in self.models:
             for param in self.models["pose_encoder"].parameters():
@@ -2344,13 +2416,16 @@ class Trainer:
                     # pose and intrinsics
                     # da3_internal means using depthanything3's internal pose/K decoder
                     # da3_ray_embedding means using ray embeddings from depth model's aux head
+                    # da3_encoder means using backbone encoder features from depth model
                     # When enable_seq_inputs is True, use cached output. Otherwise, call model per frame pair.
                     depth_output_dict = None
                     ray_embeddings = None
+                    backbone_features = None
                     need_da3_output = (self.opt.pose_model_type == "da3_internal" or 
                                       (self.opt.learn_intrinsics and self.opt.k_model_type == "da3_internal"))
                     need_ray_embeddings = (self.opt.pose_model_type == "da3_ray_embedding" or
                                           (self.opt.learn_intrinsics and self.opt.k_model_type == "da3_ray_embedding"))
+                    need_backbone_features = (self.opt.pose_model_type == "da3_encoder")
                     
                     if need_da3_output:
                         if self.enable_seq_inputs and cached_raw_model_output is not None:
@@ -2428,6 +2503,30 @@ class Trainer:
                             else:
                                 raise ValueError(f"Ray embeddings key '{ray_key}' not found in model output. Available keys: {list(raw_output.keys())}")
                     
+                    # Extract backbone features if needed for da3_encoder
+                    if need_backbone_features:
+                        raise NotImplementedError("da3_encoder pose_model_type is not fully implemented yet. Backbone feature extraction logic needs to be added.") 
+                        # Call depth model to get backbone features from frame pair
+                        # TODO: Optimize by storing backbone features in cached output when enable_seq_inputs=True
+                        frames_input = torch.stack([pose_feats[0], pose_feats[f_i]], dim=1)  # (B, 2, 3, H, W)
+                        depth_model_base = self.models["depth_model"].model
+                        
+                        # Get the last layer from out_layers
+                        last_out_layer = depth_model_base.backbone.out_layers[-1]
+                        raw_output = depth_model_base(frames_input, extrinsics=None, intrinsics=None,
+                                                     export_feat_layers=[last_out_layer], infer_gs=False, use_ray_pose=False)
+                        
+                        # Extract auxiliary features (backbone features)
+                        if hasattr(raw_output, 'aux') and raw_output.aux is not None:
+                            feat_key = f"feat_layer_{last_out_layer}"
+                            if feat_key in raw_output.aux:
+                                # Shape: [B, S, H_patch, W_patch, C] where S=2 (pair)
+                                backbone_features = raw_output.aux[feat_key]
+                            else:
+                                raise ValueError(f"Backbone feature key '{feat_key}' not found in aux. Available keys: {list(raw_output.aux.keys())}")
+                        else:
+                            raise ValueError("Backbone features (aux) not found in model output")
+                    
                     # Extract pose from wrapper output
                     if self.opt.pose_model_type == "da3_internal":
                         # Wrapper already formatted pose outputs, just merge them
@@ -2447,7 +2546,23 @@ class Trainer:
                             raise ValueError("da3_ray_embedding pose_model_type requires ray embeddings. "
                                            "This should not happen if logic is correct.")
                         # ray_embeddings shape: [B, 2, 7, H, W]
+                        # detach the ray embeddings
+                        # rot_output, translation = self.models["pose"](ray_embeddings.detach())
                         rot_output, translation = self.models["pose"](ray_embeddings)
+                        outputs[("translation", 0, f_i)] = translation
+                        
+                        rot_representation = getattr(self.opt, 'rot_representation', 'angle_axis')
+                        self._store_pose_outputs(outputs, rot_output, translation, rot_representation, f_i)
+                    
+                    elif self.opt.pose_model_type == "da3_encoder":
+                        # Use backbone encoder features to predict pose
+                        if backbone_features is None:
+                            raise ValueError("da3_encoder pose_model_type requires backbone features. "
+                                           "This should not happen if logic is correct.")
+                        # backbone_features shape: [B, 2, H_patch, W_patch, C]
+                        # detach the backbone features 
+                        # rot_output, translation = self.models["pose"](backbone_features.detach())
+                        rot_output, translation = self.models["pose"](backbone_features)
                         outputs[("translation", 0, f_i)] = translation
                         
                         rot_representation = getattr(self.opt, 'rot_representation', 'angle_axis')
@@ -2491,8 +2606,8 @@ class Trainer:
                         
                         else:
                             # Use intrinsics_head (requires intermediate_feature from pose model)
-                            if self.opt.pose_model_type in ["da3_internal", "da3_ray_embedding"]:
-                                raise ValueError(f"k_model_type 'mlp_with_pn_bottleneck_ipt' requires pose_model_type not in ['da3_internal', 'da3_ray_embedding']. "
+                            if self.opt.pose_model_type in ["da3_internal", "da3_ray_embedding", "da3_encoder"]:
+                                raise ValueError(f"k_model_type 'mlp_with_pn_bottleneck_ipt' requires pose_model_type not in ['da3_internal', 'da3_ray_embedding', 'da3_encoder']. "
                                                f"Current pose_model_type: {self.opt.pose_model_type}")
                             cam_K = self.models['intrinsics_head'](intermediate_feature, self.opt.width, self.opt.height)
                             inv_K = torch.inverse(cam_K)
@@ -3000,8 +3115,8 @@ class Trainer:
 
             loss_depth_consistency = 0
             loss_explict_geo = 0 #optic flow based
-            debug_flow_based_geo = True
-            # debug_flow_based_geo = False
+            # debug_flow_based_geo = True
+            debug_flow_based_geo = False
 
             loss_transform = 0
             loss_cvt = 0
